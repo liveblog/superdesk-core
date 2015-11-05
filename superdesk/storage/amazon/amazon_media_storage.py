@@ -15,6 +15,7 @@ import json
 import logging
 from superdesk.media.media_operations import download_file_from_url
 from superdesk.upload import upload_url
+import time
 
 import boto3
 import bson
@@ -133,6 +134,12 @@ class AmazonMediaStorage(MediaStorage):
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
         return stream
+
+    def name_for_media(self, media_id):
+        if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
+            return media_id
+
+        return '%s/%s' % (time.strftime('%Y%m%d'), media_id)
 
     def read_from_config(self):
         self.region = self.app.config.get('AMAZON_REGION', 'us-east-1') or 'us-east-1'
