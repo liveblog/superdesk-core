@@ -93,9 +93,6 @@ class AmazonMediaStorage(MediaStorage):
     def url_for_media(self, media_id, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return upload_url(str(media_id))
-        url_generator = url_generators.get(self.app.config.get('AMAZON_URL_GENERATOR', 'default'),
-                                           url_for_media_default)
-        return url_generator(self.app, media_id)
 
     def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
