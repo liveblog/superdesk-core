@@ -7,12 +7,12 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
-import time
 ''' Amazon media storage module'''
 
 from io import BytesIO
 import json
 import logging
+from mimetypes import guess_extension
 from superdesk.media.media_operations import download_file_from_url
 from superdesk.upload import upload_url
 import time
@@ -20,7 +20,6 @@ import time
 import boto3
 import bson
 from eve.io.media import MediaStorage
-from mimetypes import guess_extension
 from urllib.parse import urlparse
 from os.path import splitext
 
@@ -140,6 +139,10 @@ class AmazonMediaStorage(MediaStorage):
             return media_id
 
         return '%s/%s' % (time.strftime('%Y%m%d'), media_id)
+
+    def fetch_rendition(self, rendition):
+        stream, name, mime = download_file_from_url(rendition.get('href'))
+        return stream
 
     def read_from_config(self):
         self.region = self.app.config.get('AMAZON_REGION', 'us-east-1') or 'us-east-1'
