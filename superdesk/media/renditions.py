@@ -50,10 +50,15 @@ def generate_renditions(original, media_id, inserted, file_type, content_type,
         ext = 'jpeg'
     ext = ext if ext in ('jpeg', 'gif', 'tiff', 'png') else 'png'
     for rendition, rsize in rendition_config.items():
-        size = (rsize['width'], rsize['height'])
+        cropping_data = {}
+        # reset
         original.seek(0)
         fix_orientation(original)
-        resized, width, height = resize_image(original, ext, size)
+        # create the rendition (can be based on ratio or pixels)
+        if rsize.get('width') or rsize.get('height'):
+            resized, width, height = _resize_image(original, (rsize.get('width'), rsize.get('height')), ext)
+        elif rsize.get('ratio'):
+            resized, width, height, cropping_data = _crop_image(original, ext, rsize.get('ratio'))
         rend_content_type = 'image/%s' % ext
         file_name, rend_content_type, metadata = process_file_from_stream(resized, content_type=rend_content_type)
         resized.seek(0)
@@ -63,6 +68,8 @@ def generate_renditions(original, media_id, inserted, file_type, content_type,
         inserted.append(_id)
         renditions[rendition] = {'href': url_for_media(_id, rend_content_type), 'media': _id,
                                  'mimetype': 'image/%s' % ext, 'width': width, 'height': height}
+        # add the cropping data if exist
+        renditions[rendition].update(cropping_data)
     return renditions
 
 

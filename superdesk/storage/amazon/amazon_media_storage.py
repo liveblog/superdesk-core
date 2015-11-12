@@ -134,7 +134,6 @@ class AmazonMediaStorage(MediaStorage):
     def name_for_media(self, media_id):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return media_id
-
         return '%s/%s' % (time.strftime('%Y%m%d'), media_id)
 
     def fetch_rendition(self, rendition):
@@ -201,6 +200,15 @@ class AmazonMediaStorage(MediaStorage):
                     except Exception as ex:
                         logger.exception(ex)
         return headers
+
+    def transform_metadata_to_amazon_format(self, metadata):
+        if not metadata:
+            return {}
+        file_metadata = {}
+        for key, value in metadata.items():
+            new_key = self.user_metadata_header + key
+            file_metadata[new_key] = value
+        return file_metadata
 
     def put(self, content, filename=None, content_type=None, resource=None, metadata=None, _id=None, version=True):
         """ Saves a new file using the storage system, preferably with the name
