@@ -131,10 +131,10 @@ class AmazonMediaStorage(MediaStorage):
         stream, name, mime = download_file_from_url(rendition.get('href'))
         return stream
 
-    def name_for_media(self, media_id):
+    def media_id(self, filename):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
-            return media_id
-        return '%s/%s' % (time.strftime('%Y%m%d'), media_id)
+            return bson.ObjectId()
+        return '%s/%s' % (time.strftime('%Y%m%d'), filename)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
