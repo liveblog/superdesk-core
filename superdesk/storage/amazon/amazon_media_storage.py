@@ -68,9 +68,7 @@ def url_for_media_default(app, media_id):
 
 def url_for_media_partial(app, media_id):
     protocol = 'https' if app.config.get('AMAZON_S3_USE_HTTPS', False) else 'http'
-    url = str(media_id)
-    if app.config.get('AMAZON_PROXY_SERVER'):
-        url = '%s/%s' % (str(app.config.get('AMAZON_PROXY_SERVER')), url)
+    url = '%s/%s' % (str(app.config.get('AMAZON_PROXY_SERVER')), media_id)
     return '%s://%s' % (protocol, url)
 
 url_generators = {
@@ -93,6 +91,13 @@ class AmazonMediaStorage(MediaStorage):
     def url_for_media(self, media_id, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return upload_url(str(media_id))
+
+        if self.app.config.get('AMAZON_PROXY_SERVER'):
+            url_generator = url_generators.get(self.app.config.get('AMAZON_URL_GENERATOR', 'default'),
+                                               url_for_media_default)
+        else:
+            url_generator = url_for_media_default
+        return url_generator(self.app, media_id)
 
     def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
