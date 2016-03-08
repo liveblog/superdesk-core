@@ -46,6 +46,7 @@ class SuperdeskGridFSMediaStorage(GridFSMediaStorage):
             return bson.ObjectId(sha(str(filename))[:24])
 
     def url_for_media(self, media_id, content_type=None):
+
         """Return url for givne media id.
         :param media_id: media id from media_id method
         """
