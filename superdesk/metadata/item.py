@@ -301,6 +301,11 @@ metadata_schema = {
     'associations': {
         'type': 'dict',
     },
+    'alt_text': {
+        'type': 'text',
+        'nullable': True,
+        'mapping': not_analyzed,
+    },
 
     # aka Locator as per NewML Specification
     'place': {
