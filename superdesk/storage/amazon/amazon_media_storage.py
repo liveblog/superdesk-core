@@ -136,10 +136,11 @@ class AmazonMediaStorage(MediaStorage):
         stream, name, mime = download_file_from_url(rendition.get('href'))
         return stream
 
-    def media_id(self, filename):
+    def media_id(self, filename, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return str(bson.ObjectId())
-        return '%s/%s' % (time.strftime('%Y%m%d'), filename)
+        extension = str(_guess_extension(content_type)) if content_type else ''
+        return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
@@ -226,7 +227,11 @@ class AmazonMediaStorage(MediaStorage):
         # XXX: we don't use metadata here as Amazon S3 as a limit of 2048 bytes (keys + values)
         #      and they are anyway stored in MongoDB (and still part of the file). See issue SD-4231
         logger.debug('Going to save file file=%s media=%s ' % (filename, _id))
+<<<<<<< HEAD
         _id = _id or self.media_id(filename, content_type=content_type, version=version)
+=======
+        _id = _id or self.media_id(filename, content_type=content_type)
+>>>>>>> f71efa7... fix(storage: amazon): set extension in media_id, not url generator
         found = self._check_exists(_id)
         if found:
             return _id
