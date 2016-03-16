@@ -92,13 +92,6 @@ class AmazonMediaStorage(MediaStorage):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return upload_url(str(media_id))
 
-        if self.app.config.get('AMAZON_PROXY_SERVER'):
-            url_generator = url_generators.get(self.app.config.get('AMAZON_URL_GENERATOR', 'default'),
-                                               url_for_media_default)
-        else:
-            url_generator = url_for_media_default
-        return url_generator(self.app, media_id)
-
     def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
             if filename doesn't have an extension one is guessed,
@@ -136,10 +129,11 @@ class AmazonMediaStorage(MediaStorage):
         stream, name, mime = download_file_from_url(rendition.get('href'))
         return stream
 
-    def media_id(self, filename):
+    def media_id(self, filename, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return str(bson.ObjectId())
-        return '%s/%s' % (time.strftime('%Y%m%d'), filename)
+        extension = str(_guess_extension(content_type)) if content_type else ''
+        return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
