@@ -92,13 +92,6 @@ class AmazonMediaStorage(MediaStorage):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return upload_url(str(media_id))
 
-        if self.app.config.get('AMAZON_PROXY_SERVER'):
-            url_generator = url_generators.get(self.app.config.get('AMAZON_URL_GENERATOR', 'default'),
-                                               url_for_media_default)
-        else:
-            url_generator = url_for_media_default
-        return url_generator(self.app, media_id)
-
     def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
             if filename doesn't have an extension one is guessed,
@@ -227,11 +220,7 @@ class AmazonMediaStorage(MediaStorage):
         # XXX: we don't use metadata here as Amazon S3 as a limit of 2048 bytes (keys + values)
         #      and they are anyway stored in MongoDB (and still part of the file). See issue SD-4231
         logger.debug('Going to save file file=%s media=%s ' % (filename, _id))
-<<<<<<< HEAD
         _id = _id or self.media_id(filename, content_type=content_type, version=version)
-=======
-        _id = _id or self.media_id(filename, content_type=content_type)
->>>>>>> f71efa7... fix(storage: amazon): set extension in media_id, not url generator
         found = self._check_exists(_id)
         if found:
             return _id
