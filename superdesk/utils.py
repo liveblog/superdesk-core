@@ -23,9 +23,6 @@ from bs4 import BeautifulSoup
 required_string = {'type': 'string', 'required': True, 'nullable': False, 'empty': False}
 
 
-required_string = {'type': 'string', 'required': True, 'nullable': False, 'empty': False}
-
-
 class FileSortAttributes(Enum):
     """
     Enum defining the File Story Attributes.
