@@ -109,17 +109,14 @@ metadata_schema = {
     # Copyright Information
     'usageterms': {
         'type': 'string',
-        'mapping': not_analyzed,
         'nullable': True,
     },
     'copyrightnotice': {
         'type': 'string',
-        'mapping': not_analyzed,
         'nullable': True
     },
     'copyrightholder': {
         'type': 'string',
-        'mapping': not_analyzed,
         'nullable': True
     },
     # Category Details
@@ -316,8 +313,7 @@ metadata_schema = {
     },
     'alt_text': {
         'type': 'string',
-        'nullable': True,
-        'mapping': not_analyzed,
+        'nullable': True
     },
 
     # aka Locator as per NewML Specification
