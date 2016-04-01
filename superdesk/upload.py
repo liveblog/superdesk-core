@@ -62,6 +62,11 @@ def url_for_media(media_id, mimetype=None):
                        _external=True, _schema=superdesk.config.URL_PROTOCOL)
 
 
+def upload_url(media_id):
+    return url_for('upload_raw.get_upload_as_data_uri', media_id=media_id,
+                   _external=True, _schema=app.config.get('URL_PROTOCOL'))
+
+
 def init_app(app):
     endpoint_name = 'upload'
     service = UploadService(endpoint_name, backend=superdesk.get_backend())
