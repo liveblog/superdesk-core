@@ -39,7 +39,7 @@ class SuperdeskGridFSMediaStorage(GridFSMediaStorage):
         """Get media id for given filename.
 
         It can be used by async task to first generate id upload file later.
-        
+
         :param filename: unique file name
         """
         try:
