@@ -92,6 +92,13 @@ class AmazonMediaStorage(MediaStorage):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return upload_url(str(media_id))
 
+        if self.app.config.get('AMAZON_PROXY_SERVER'):
+            url_generator = url_generators.get(self.app.config.get('AMAZON_URL_GENERATOR', 'default'),
+                                               url_for_media_default)
+        else:
+            url_generator = url_for_media_default
+        return url_generator(self.app, media_id)
+
     def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
             if filename doesn't have an extension one is guessed,
@@ -102,6 +109,7 @@ class AmazonMediaStorage(MediaStorage):
         """
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return str(bson.ObjectId())
+
         path = urlparse(filename).path
         file_extension = splitext(path)[1]
 
@@ -124,16 +132,6 @@ class AmazonMediaStorage(MediaStorage):
             version = '%s/' % version.strip('/')
 
         return '%s%s%s%s' % (subfolder, version, filename, extension)
-
-    def fetch_rendition(self, rendition):
-        stream, name, mime = download_file_from_url(rendition.get('href'))
-        return stream
-
-    def media_id(self, filename, content_type=None):
-        if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
-            return str(bson.ObjectId())
-        extension = str(_guess_extension(content_type)) if content_type else ''
-        return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
@@ -199,15 +197,6 @@ class AmazonMediaStorage(MediaStorage):
                     except Exception as ex:
                         logger.exception(ex)
         return headers
-
-    def transform_metadata_to_amazon_format(self, metadata):
-        if not metadata:
-            return {}
-        file_metadata = {}
-        for key, value in metadata.items():
-            new_key = self.user_metadata_header + key
-            file_metadata[new_key] = value
-        return file_metadata
 
     def put(self, content, filename=None, content_type=None, resource=None, metadata=None, _id=None, version=True):
         """ Saves a new file using the storage system, preferably with the name
