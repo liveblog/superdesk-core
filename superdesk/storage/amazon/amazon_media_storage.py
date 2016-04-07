@@ -57,9 +57,8 @@ def _guess_extension(content_type):
 
 def url_for_media_default(app, media_id):
     protocol = 'https' if app.config.get('AMAZON_S3_USE_HTTPS', False) else 'http'
-#     endpoint = 's3-%s.%s' % (app.config.get('AMAZON_REGION'), app.config['AMAZON_SERVER'])
-    url = str(media_id)
-#     url = '%s.%s/%s' % (app.config['AMAZON_CONTAINER_NAME'], endpoint, media_id)
+    endpoint = 's3-%s.%s' % (app.config.get('AMAZON_REGION'), app.config['AMAZON_SERVER'])
+    url = '%s.%s/%s' % (app.config['AMAZON_CONTAINER_NAME'], endpoint, media_id)
     if app.config.get('AMAZON_PROXY_SERVER'):
         url = '%s/%s' % (str(app.config.get('AMAZON_PROXY_SERVER')), url)
     return '%s://%s' % (protocol, url)
