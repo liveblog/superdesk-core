@@ -189,3 +189,4 @@ def get_renditions_spec(without_internal_renditions=False):
             # complete list of wanted renditions
             rendition_spec[crop['name']] = crop
     return rendition_spec
+    
