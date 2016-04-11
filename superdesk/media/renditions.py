@@ -14,7 +14,11 @@ from io import BytesIO
 import logging
 from flask import current_app as app
 from .media_operations import process_file_from_stream
+from .media_operations import crop_image
 from .image import fix_orientation
+from eve.utils import config
+from superdesk import get_resource_service
+
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +84,47 @@ def delete_file_on_error(doc, file_id):
     app.media.delete(file_id)
 
 
-def resize_image(content, format, size, keepProportions=True):
+def _crop_image(content, format, ratio):
+    '''
+    Crop the image given as a binary stream
+
+    @param content: stream
+        The binary stream containing the image
+    @param format: str
+        The format of the resized image (e.g. png, jpg etc.)
+    @param ratio: string, int or float
+        Ratio to apply. '16:9', '1:1' etc...
+    @return: stream
+        Returns the resized image as a binary stream.
+    '''
+    img = Image.open(content)
+    width, height = img.size
+    if type(ratio) not in [float, int]:
+        ratio = ratio.split(':')
+        ratio = int(ratio[0]) / int(ratio[1])
+    if height * ratio > width:
+        new_width = width
+        new_height = int(new_width / ratio)
+        cropping_data = {
+            'CropLeft': 0,
+            'CropRight': new_width,
+            'CropTop': int((height - new_height) / 2),
+            'CropBottom': int((height - new_height) / 2) + new_height,
+        }
+    else:
+        new_width = int(height * ratio)
+        new_height = height
+        cropping_data = {
+            'CropLeft': int((width - new_width) / 2),
+            'CropRight': int((width - new_width) / 2) + new_width,
+            'CropTop': 0,
+            'CropBottom': new_height,
+        }
+    crop, out = crop_image(content, file_name='crop.for.rendition', cropping_data=cropping_data, image_format=format)
+    return out, new_width, new_height, cropping_data
+
+
+def _resize_image(content, size, format='png', keepProportions=True):
     '''
     Resize the image given as a binary stream
 
@@ -101,16 +145,48 @@ def resize_image(content, format, size, keepProportions=True):
     if keepProportions:
         width, height = img.size
         new_width, new_height = size
-        x_ratio = width / new_width
-        y_ratio = height / new_height
-        if x_ratio > y_ratio:
-            new_height = int(height / x_ratio)
+        if new_width is None and new_height is None:
+            raise Exception('size parameter requires at least width or height value')
+        # resize with width and height
+        if new_width is not None and new_height is not None:
+            new_width, new_height = int(new_width), int(new_height)
+            x_ratio = width / new_width
+            y_ratio = height / new_height
+            if x_ratio > y_ratio:
+                new_height = int(height / x_ratio)
+            else:
+                new_width = int(width / y_ratio)
+        # resize with only one dimension
         else:
-            new_width = int(width / y_ratio)
-        size = (new_width, new_height)
-
-    resized = img.resize(size, Image.ANTIALIAS)
+            original_ratio = width / height
+            if new_width is not None:
+                new_height = int(new_width / original_ratio)
+            else:
+                new_width = int(new_height * original_ratio)
+    resized = img.resize((new_width, new_height), Image.ANTIALIAS)
     out = BytesIO()
     resized.save(out, format, quality=85)
     out.seek(0)
     return out, new_width, new_height
+
+
+def get_renditions_spec(without_internal_renditions=False):
+    '''
+    Return the list of the needed renditions. It contains the ones defined in
+    settings in `RENDITIONS.picture` and the ones defined in vocabularies in `crop_sizes`
+
+    @return: list
+        Returns the list of renditions specification.
+    '''
+    rendition_spec = {}
+    # renditions required by superdesk
+    if not without_internal_renditions:
+        rendition_spec = config.RENDITIONS['picture']
+    # load custom renditions sizes
+    custom_crops = get_resource_service('vocabularies').find_one(req=None, _id='crop_sizes')
+    if custom_crops:
+        for crop in custom_crops.get('items'):
+            # complete list of wanted renditions
+            rendition_spec[crop['name']] = crop
+    return rendition_spec
+    
