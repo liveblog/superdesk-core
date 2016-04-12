@@ -12,10 +12,8 @@
 from io import BytesIO
 import json
 import logging
-from mimetypes import guess_extension
 from superdesk.media.media_operations import download_file_from_url
 from superdesk.upload import upload_url
-import time
 
 import boto3
 import bson
@@ -46,13 +44,6 @@ class AmazonObjectWrapper(BytesIO):
         self.metadata = metadata
         self.upload_date = s3_object['LastModified']
         self.md5 = s3_object['ETag'][1:-1]
-
-
-def _guess_extension(content_type):
-    ext = str(guess_extension(content_type))
-    if ext in ['.jpe', '.jpeg']:
-        return '.jpg'
-    return ext
 
 
 def url_for_media_default(app, media_id):
@@ -98,8 +89,7 @@ class AmazonMediaStorage(MediaStorage):
     def media_id(self, filename, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return str(bson.ObjectId())
-        extension = str(_guess_extension(content_type)) if content_type else ''
-        return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
+        return '%s' % (filename)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
