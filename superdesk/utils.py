@@ -10,12 +10,17 @@
 
 import os
 import bcrypt
+import hashlib
 from uuid import uuid4
 from datetime import datetime
 from bson import ObjectId
 from enum import Enum
 from importlib import import_module
 from eve.utils import config
+from bs4 import BeautifulSoup
+
+
+required_string = {'type': 'string', 'required': True, 'nullable': False, 'empty': False}
 
 
 class FileSortAttributes(Enum):
@@ -154,3 +159,18 @@ def compare_preferences(original, updates):
     removed = original_keys - updates_keys
     modified = {o: (original[o], updates[o]) for o in intersect_keys if original[o] != updates[o]}
     return added, removed, modified
+
+
+def sha(text):
+    """Get sha hext digest for given text.
+    Using sha256 hashing function, returning 64 hex characters.
+    :param text: text str
+    """
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def plaintext_filter(value):
+    """Filter out html from value."""
+    soup = BeautifulSoup(value, 'html.parser')
+    text = soup.get_text()
+    return text.replace('\n', ' ').strip()
