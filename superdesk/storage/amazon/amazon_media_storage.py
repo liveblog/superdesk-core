@@ -12,10 +12,8 @@
 from io import BytesIO
 import json
 import logging
-from mimetypes import guess_extension
 from superdesk.media.media_operations import download_file_from_url
 from superdesk.upload import upload_url
-import time
 
 import boto3
 import bson
@@ -48,13 +46,6 @@ class AmazonObjectWrapper(BytesIO):
         self.metadata = metadata
         self.upload_date = s3_object['LastModified']
         self.md5 = s3_object['ETag'][1:-1]
-
-
-def _guess_extension(content_type):
-    ext = str(guess_extension(content_type))
-    if ext in ['.jpe', '.jpeg']:
-        return '.jpg'
-    return ext
 
 
 def url_for_media_default(app, media_id):
@@ -197,6 +188,15 @@ class AmazonMediaStorage(MediaStorage):
                     except Exception as ex:
                         logger.exception(ex)
         return headers
+
+    def transform_metadata_to_amazon_format(self, metadata):
+        if not metadata:
+            return {}
+        file_metadata = {}
+        for key, value in metadata.items():
+            new_key = self.user_metadata_header + key
+            file_metadata[new_key] = value
+        return file_metadata
 
     def put(self, content, filename=None, content_type=None, resource=None, metadata=None, _id=None, version=True):
         """ Saves a new file using the storage system, preferably with the name
