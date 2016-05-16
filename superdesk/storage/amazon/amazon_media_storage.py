@@ -7,6 +7,7 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
+import time
 ''' Amazon media storage module'''
 
 from io import BytesIO
