@@ -7,6 +7,7 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
+import time
 ''' Amazon media storage module'''
 
 from io import BytesIO
@@ -89,7 +90,7 @@ class AmazonMediaStorage(MediaStorage):
     def media_id(self, filename, content_type=None):
         if not self.app.config.get('AMAZON_SERVE_DIRECT_LINKS', False):
             return str(bson.ObjectId())
-        return '%s' % (filename)
+        return '%s/%s' % (time.strftime('%Y%m%d'), filename)
 
     def fetch_rendition(self, rendition):
         stream, name, mime = download_file_from_url(rendition.get('href'))
