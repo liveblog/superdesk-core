@@ -36,6 +36,7 @@ def get_schema_version():
 
 def set_schema_version(version):
     """Store app schema version to db.
+
     :param version
     """
     db = _get_version_db()
@@ -49,8 +50,10 @@ def update_schema():
 
 class SchemaMigrateCommand(superdesk.Command):
     """Migrate elastic schema if needed, should be triggered on every deploy.
+
     It compares version set in code (latest) to one stored in db and only updates
     schema if those are different.
+
     Current version is read from settings and fallbacks to superdesk.SCHEMA_VERSION,
     so that you can avoid migration via settings file if needed.
     """
