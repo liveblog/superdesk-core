@@ -105,6 +105,9 @@ class AmazonMediaStorage(MediaStorage):
         if not extension:
             extension = str(_guess_extension(content_type)) if content_type else ''
             return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
+        subfolder = self.app.config.get('AMAZON_S3_SUBFOLDER', False)
+        if subfolder:
+            return '%s/%s/%s' % (subfolder.rstrip('/'), time.strftime('%Y%m%d'), filename)
         return '%s/%s' % (time.strftime('%Y%m%d'), filename)
 
     def fetch_rendition(self, rendition):
@@ -189,6 +192,8 @@ class AmazonMediaStorage(MediaStorage):
         of the stored file will be returned. The content type argument is used
         to appropriately identify the file when it is retrieved.
         """
+        # XXX: we don't use metadata here as Amazon S3 as a limit of 2048 bytes (keys + values)
+        #      and they are anyway stored in MongoDB (and still part of the file). See issue SD-4231
         logger.debug('Going to save file file=%s media=%s ' % (filename, _id))
         _id = _id or self.media_id(filename, content_type=content_type)
         found = self._check_exists(_id)
@@ -198,7 +203,7 @@ class AmazonMediaStorage(MediaStorage):
         try:
             file_metadata = self.transform_metadata_to_amazon_format(metadata)
             self.client.put_object(Key=_id, Body=content, Bucket=self.container_name,
-                                   ContentType=content_type, Metadata=file_metadata, **self.kwargs)
+                                   ContentType=content_type, **self.kwargs)
             return _id
         except Exception as ex:
             logger.exception(ex)
