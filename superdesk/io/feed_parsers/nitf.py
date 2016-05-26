@@ -16,9 +16,10 @@ from superdesk.io.feed_parsers import XMLFeedParser
 import xml.etree.ElementTree as etree
 from superdesk.errors import ParserError
 from superdesk.utc import utc
-from superdesk.metadata.item import CONTENT_TYPE, ITEM_TYPE
+from superdesk.metadata.item import CONTENT_TYPE, ITEM_TYPE, FORMAT, FORMATS
 from superdesk.etree import get_word_count
 from superdesk.io.iptc import subject_codes
+from bs4 import BeautifulSoup
 import re
 import superdesk
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class NITFFeedParser(XMLFeedParser):
                        },
             'subject': self.get_subjects,
             'body_html': self.get_content,
+            FORMAT: self.get_format,
             'place': self.get_place,
             'keywords': {'xpath': 'head/docdata',
                          'filter': self.get_keywords,
@@ -91,9 +93,6 @@ class NITFFeedParser(XMLFeedParser):
                            'filter': lambda elem: int(elem.get('content')),
                            },
             'anpa_take_key': "head/meta/[@name='anpa-keyword']",
-            ITEM_TYPE: {'xpath': "head/meta/[@name='anpa-format']",
-                        'filter': self.anpa_format_filter,
-                        },
             'priority': {'xpath': "head/meta/[@name='aap-priority']",
                          'filter': lambda elem: self.map_priority(elem.get('content')),
                          },
@@ -108,11 +107,11 @@ class NITFFeedParser(XMLFeedParser):
     def _parse_xpath(self, xpath):
         """parse xpath and handle final attribute"""
         last_idx = xpath.rfind('/')
-        last = xpath[last_idx + 1:].rstrip()
         if last_idx == -1:
             msg = "No path separator found in xpath {}, ignoring it".format(xpath)
             logger.warn(msg)
             raise ValueError(msg)
+        last = xpath[last_idx + 1:].rstrip()
         if last.startswith('@'):
             # an attribute is requested
             return {'xpath': xpath[:last_idx], 'attribute': last[1:]}
@@ -153,12 +152,14 @@ class NITFFeedParser(XMLFeedParser):
             return {}
 
     def _generate_mapping(self):
-        """generate self.metadata_mapping according to settings
+        """generate self.metadata_mapping according to available mappings
 
-        Settings use NITF_MAPPING dictionary.
-        If a key is not found in NITF_MAPPING, self.default_mapping is used instead.
+        The following mappings are used in this order (last is more important):
+            - self.default_mapping
+            - self.MAPPING, intended for sublasses
+            - NITF_MAPPING dictionary which can be put in settings
         If a value is a non-empty string, it is a xpath, @attribute can be used as last path component.
-        If value is empty string, the key will be ignored
+        If value is empty string/dict, the key will be ignored
         If value is a callable, it will be executed with nitf Element as argument, return value will be used.
         If a dictionary is used as value, following keys can be used:
             xpath: path to the element
@@ -167,22 +168,33 @@ class NITFFeedParser(XMLFeedParser):
             default_attr: value if element exist but attribute is missing
             filter: callable to be used with found element
             filter_value: callable to be used with found value
+            key_hook: a callable which store itself the resulting value in the item,
+                      usefull for specific behaviours when several values goes to same key
+                      callable will get item and value as arguments.
+            update: a bool which indicate that default mapping must be updated instead of overwritten
         Note the difference between using a callable directly, and "filter" in a dict:
         the former get the root element and can be skipped with SkipValue, while the
         later get an element found with xpath.
         """
+        try:
+            class_mapping = self.MAPPING
+        except AttributeError:
+            class_mapping = {}
+
         settings_mapping = getattr(superdesk.config, SETTINGS_MAPPING_PARAM)
         if settings_mapping is None:
             logging.info("No mapping found in settings for NITF parser, using default one")
             settings_mapping = {}
-        mapping = self.metadata_mapping = {}
-        for key, value in self.default_mapping.items():
-            if key in settings_mapping:
-                continue
-            mapping[key] = self._parse_mapping(value)
 
-        for key, value in settings_mapping.items():
-            mapping[key] = self._parse_mapping(value)
+        mapping = self.metadata_mapping = {}
+
+        for source_mapping in (self.default_mapping, class_mapping, settings_mapping):
+            for key, value in source_mapping.items():
+                key_mapping = self._parse_mapping(value)
+                if key_mapping.get('update', False) and key in mapping:
+                    mapping[key].update(key_mapping)
+                else:
+                    mapping[key] = key_mapping
 
     def can_parse(self, xml):
         return xml.tag == 'nitf'
@@ -202,7 +214,7 @@ class NITFFeedParser(XMLFeedParser):
                 except KeyError:
                     # no xpath, we must have a callable
                     try:
-                        item[key] = mapping['callback'](xml)
+                        value = mapping['callback'](xml)
                     except KeyError:
                         logging.warn("invalid mapping for key {}, ignoring it".format(key))
                         continue
@@ -212,7 +224,7 @@ class NITFFeedParser(XMLFeedParser):
                     elem = xml.find(xpath)
                     if elem is None:
                         try:
-                            item[key] = mapping['default']
+                            value = mapping['default']
                         except KeyError:
                             # if there is not default value we skip the key
                             continue
@@ -221,21 +233,27 @@ class NITFFeedParser(XMLFeedParser):
                         # do we want a filter, an attribute or the content?
                         try:
                             # filter
-                            item[key] = mapping['filter'](elem)
+                            value = mapping['filter'](elem)
                         except KeyError:
                             try:
                                 attribute = mapping['attribute']
                             except KeyError:
                                 # content
-                                item[key] = ''.join(elem.itertext())
+                                value = ''.join(elem.itertext())
                             else:
                                 # attribute
-                                item[key] = elem.get(attribute, mapping.get('default_attr'))
-                        try:
-                            # filter_value is applied on found value
-                            item[key] = mapping['filter_value'](item[key])
-                        except KeyError:
-                            pass
+                                value = elem.get(attribute, mapping.get('default_attr'))
+
+                try:
+                    # filter_value is applied on found value
+                    value = mapping['filter_value'](value)
+                except KeyError:
+                    pass
+
+                if 'key_hook' in mapping:
+                    mapping['key_hook'](item, value)
+                else:
+                    item[key] = value
 
             elem = xml.find('body/body.head/dateline/location/city')
             if elem is not None:
@@ -268,8 +286,14 @@ class NITFFeedParser(XMLFeedParser):
         :return: a list of subject dictionaries
         """
         subjects = []
+        qcodes = []  # we check qcodes to avoid duplicates
         for elem in tree.findall('head/tobject/tobject.subject'):
             qcode = elem.get('tobject.subject.refnum')
+            if qcode in qcodes:
+                # we ignore duplicates
+                continue
+            else:
+                qcodes.append(qcode)
             for field in subject_fields:
                 if elem.get(field):
                     if field == SUBJECT_TYPE:
@@ -279,20 +303,60 @@ class NITFFeedParser(XMLFeedParser):
                     else:
                         field_qcode = qcode
 
-                    if subject_codes.get(field_qcode):
+                    if subject_codes.get(field_qcode) and \
+                            not any(c['qcode'] == field_qcode for c in subjects):
                         subjects.append({
                             'name': elem.get(field),
                             'qcode': field_qcode
                         })
+
+            # if the subject_fields are not specified.
             if not any(c['qcode'] == qcode for c in subjects) and subject_codes.get(qcode):
                 subjects.append({'name': subject_codes[qcode], 'qcode': qcode})
         return subjects
 
-    def get_content(self, tree):
+    def get_anpa_format(self, xml):
+        elem = xml.find("head/meta[@name='anpa-format']")
+        if elem is not None:
+            content = elem.get('content')
+            return content.lower() if content is not None else 'x'
+
+    def parse_to_preformatted(self, element):
+        """
+        Extract the contnt of the element as a plain string with line enders
+        :param element:
+        :return:
+        """
         elements = []
-        for elem in tree.find('body/body.content'):
-            elements.append(etree.tostring(elem, encoding='unicode'))
+        soup = BeautifulSoup(element, 'html.parser')
+        for elem in soup.findAll(True):
+            elements.append(elem.get_text() + '\r\n')
         return ''.join(elements)
+
+    def get_content(self, xml):
+        elements = []
+        for elem in xml.find('body/body.content'):
+            elements.append(etree.tostring(elem, encoding='unicode'))
+        content = ''.join(elements)
+        if self.get_anpa_format(xml) == 't':
+            if not content.startswith('<pre>'):
+                # convert content to text in a pre tag
+                content = '<pre>{}</pre>'.format(self.parse_to_preformatted(content))
+            else:
+                content = self.parse_to_preformatted(content)
+        return content
+
+    def get_format(self, xml):
+        anpa_format = self.get_anpa_format(xml)
+        if anpa_format is not None:
+            return FORMATS.PRESERVED if anpa_format == 't' else FORMATS.HTML
+
+        body_elem = xml.find('body/body.content')
+        # if the body contains only a single pre tag we mark the format as preserved
+        if len(body_elem) == 1 and body_elem[0].tag == 'pre':
+            return FORMATS.PRESERVED
+        else:
+            return FORMATS.HTML
 
     def get_place(self, tree):
         elem = tree.find("head/meta/[@name='aap-place']")
@@ -348,10 +412,6 @@ class NITFFeedParser(XMLFeedParser):
             if person is not None:
                 byline = "{} {}".format(byline.strip(), person.text.strip())
         return byline
-
-    def anpa_format_filter(self, elem):
-        anpa_format = elem.get('content').lower() if elem.get('content') is not None else 'x'
-        return CONTENT_TYPE.TEXT if anpa_format == 'x' else CONTENT_TYPE.PREFORMATTED
 
     def get_original_creator(self, tree):
         elem = tree.find("head/meta/[@name='aap-original-creator']")
