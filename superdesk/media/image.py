@@ -16,6 +16,18 @@ from PIL import Image, ExifTags
 from flask import json
 
 
+ORIENTATIONS = {
+    1: ("Normal", 0),
+    2: ("Mirrored left-to-right", 0),
+    3: ("Rotated 180 degrees", 180),
+    4: ("Mirrored top-to-bottom", 0),
+    5: ("Mirrored along top-left diagonal", 0),
+    6: ("Rotated 90 degrees", -90),
+    7: ("Mirrored along top-right diagonal", 0),
+    8: ("Rotated 270 degrees", -270)
+}
+
+
 def get_meta(file_stream):
     '''
     Returns the image metadata in a dictionary of tag:value pairs.
@@ -44,8 +56,13 @@ def get_meta(file_stream):
                 value = {ExifTags.GPSTAGS[vk].strip(): vv for vk, vv in v.items()}
                 exif_meta[key] = value
             else:
-                value = v.decode('UTF-8') if isinstance(v, bytes) else v
-                exif_meta[key] = value
+                if key == 'Orientation':
+                    if v in [3, 6, 8]:
+                        degrees = ORIENTATIONS[v][1]
+                        img = img.rotate(degrees)
+                else:
+                    value = v.decode('UTF-8') if isinstance(v, bytes) else v
+                    exif_meta[key] = value
         except:
             # ignore fields we can't store in db
             pass
