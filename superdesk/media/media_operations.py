@@ -73,8 +73,6 @@ def process_file_from_stream(content, content_type=None):
     content.seek(0)
     metadata = encode_metadata(metadata)
     metadata.update({'length': json.dumps(len(content.getvalue()))})
-    fix_orientation(content)
-    content.seek(0)
     return file_name, content_type, metadata
 
 
