@@ -29,6 +29,7 @@ from .logging import logger as superdesk_logger
 
 API_NAME = 'Superdesk API'
 VERSION = (0, 0, 1)
+SCHEMA_VERSION = 0
 DOMAIN = {}
 COMMANDS = {}
 BLUEPRINTS = []
