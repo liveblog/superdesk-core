@@ -175,15 +175,6 @@ class AmazonMediaStorage(MediaStorage):
                         logger.exception(ex)
         return headers
 
-    def transform_metadata_to_amazon_format(self, metadata):
-        if not metadata:
-            return {}
-        file_metadata = {}
-        for key, value in metadata.items():
-            new_key = self.user_metadata_header + key
-            file_metadata[new_key] = value
-        return file_metadata
-
     def put(self, content, filename=None, content_type=None, resource=None, metadata=None, _id=None):
         """ Saves a new file using the storage system, preferably with the name
         specified. If there already exists a file with this name name, the
@@ -201,7 +192,6 @@ class AmazonMediaStorage(MediaStorage):
             return _id
 
         try:
-            file_metadata = self.transform_metadata_to_amazon_format(metadata)
             self.client.put_object(Key=_id, Body=content, Bucket=self.container_name,
                                    ContentType=content_type, **self.kwargs)
             return _id
