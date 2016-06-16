@@ -14,6 +14,7 @@ from io import BytesIO
 import logging
 from flask import current_app as app
 from .media_operations import process_file_from_stream
+from .image import fix_orientation
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ def generate_renditions(original, media_id, inserted, file_type, content_type,
     for rendition, rsize in rendition_config.items():
         size = (rsize['width'], rsize['height'])
         original.seek(0)
+        fix_orientation(original)
         resized, width, height = resize_image(original, ext, size)
         rend_content_type = 'image/%s' % ext
         file_name, rend_content_type, metadata = process_file_from_stream(resized, content_type=rend_content_type)
