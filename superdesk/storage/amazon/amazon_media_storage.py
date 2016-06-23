@@ -107,7 +107,7 @@ class AmazonMediaStorage(MediaStorage):
             return '%s/%s%s' % (time.strftime('%Y%m%d'), filename, extension)
         subfolder = self.app.config.get('AMAZON_S3_SUBFOLDER', False)
         if subfolder:
-            return '%s/%s/%s' % (subfolder.rstrip('/'), time.strftime('%Y%m%d'), filename)
+            return '%s/%s/%s' % (subfolder.strip('/'), time.strftime('%Y%m%d'), filename)
         return '%s/%s' % (time.strftime('%Y%m%d'), filename)
 
     def fetch_rendition(self, rendition):
