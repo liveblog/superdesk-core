@@ -66,6 +66,7 @@ class UsersResource(Resource):
                 'nullable': True
             },
             'avatar': Resource.rel('upload', embeddable=True, nullable=True),
+            'avatar_renditions': {'type': 'dict'},
             'role': Resource.rel('roles', True),
             'privileges': {'type': 'dict'},
             'workspace': {
