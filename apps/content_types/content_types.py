@@ -36,7 +36,6 @@ DEFAULT_EDITOR = {
     'anpa_take_key': {'order': 3, 'sdWidth': 'half'},
     'place': {'order': 4, 'sdWidth': 'half'},
     'priority': {'order': 5, 'sdWidth': 'quarter'},
-    'urgency': {'order': 6, 'sdWidth': 'quarter'},
     'anpa_category': {'order': 7, 'sdWidth': 'full'},
     'subject': {'order': 8, 'sdWidth': 'full'},
     'company_codes': {'order': 9, 'sdWidth': 'full'},
