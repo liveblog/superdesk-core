@@ -10,6 +10,7 @@
 
 import flask
 import logging
+from bson import ObjectId
 from flask import current_app as app
 from eve.utils import config
 from superdesk.activity import add_activity, ACTIVITY_CREATE, ACTIVITY_UPDATE
@@ -21,7 +22,7 @@ from superdesk.emails import send_user_status_changed_email, send_activate_accou
 from superdesk.utc import utcnow
 from superdesk.privilege import get_privilege_list
 from superdesk.errors import SuperdeskApiError
-from superdesk.users.errors import UserInactiveError
+from superdesk.users.errors import UserInactiveError, UserNotRegisteredException
 from superdesk.notification import push_notification
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,10 @@ def set_sign_off(user):
     """
 
     if SIGN_OFF not in user:
-        if 'first_name' not in user or 'last_name' not in user:
+        signOffMapping = app.config.get('SIGN_OFF_MAPPING', None)
+        if signOffMapping and signOffMapping in user:
+            user[SIGN_OFF] = user[signOffMapping]
+        elif 'first_name' not in user or 'last_name' not in user:
             user[SIGN_OFF] = user['username'][:3].upper()
         else:
             user[SIGN_OFF] = '{first_name[0]}{last_name[0]}'.format(**user)
@@ -163,7 +167,7 @@ class UsersService(BaseService):
                 status = 'enabled and active' if active else 'enabled but inactive'
 
             if can_send_mail:
-                send_user_status_changed_email([user['email']], status)
+                send_user_status_changed_email([user.get('email')], status)
 
     def __send_notification(self, updates, user):
         user_id = user['_id']
@@ -270,12 +274,18 @@ class UsersService(BaseService):
         archive_autosave_service = get_resource_service('archive_autosave')
 
         doc_to_unlock = {'lock_user': None, 'lock_session': None, 'lock_time': None, 'force_unlock': True}
+        user = ObjectId(user_id) if isinstance(user_id, str) else user_id
+        query = {
+            '$or': [{'lock_user': user},
+                    {'task.user': user, 'task.desk': {'$exists': False}}]
+        }
 
-        items_locked_by_user = archive_service.get(req=None, lookup={'lock_user': user_id})
+        items_locked_by_user = archive_service.get_from_mongo(req=None, lookup=query)
+
         if items_locked_by_user and items_locked_by_user.count():
             for item in items_locked_by_user:
                 # delete the item if nothing is saved so far
-                if item[config.VERSION] == 1 and item['state'] == 'draft':
+                if item[config.VERSION] == 0 and item['state'] == 'draft':
                     get_resource_service('archive').delete(lookup={'_id': item['_id']})
                 else:
                     archive_service.update(item['_id'], doc_to_unlock, item)
@@ -338,6 +348,21 @@ class UsersService(BaseService):
 
     def get_invisible_stages_ids(self, user_id):
         return [str(stage['_id']) for stage in self.get_invisible_stages(user_id)]
+
+    def get_user_by_email(self, email_address):
+        """
+        Finds a user by the given email_address. Does a exact match.
+        :param email_address:
+        :type email_address: str with valid email format
+        :return: user object if found.
+        :rtype: dict having user details :py:class: `superdesk.users.users.UsersResource`
+        :raises: UserNotRegisteredException if no user found with the given email address.
+        """
+        user = self.find_one(req=None, email=email_address)
+        if not user:
+            raise UserNotRegisteredException('No user registered with email %s' % email_address)
+
+        return user
 
 
 class DBUsersService(UsersService):

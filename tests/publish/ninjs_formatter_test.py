@@ -7,15 +7,17 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
+from unittest import mock
 from datetime import timedelta
-from superdesk.utc import utcnow
+import json
 
+from superdesk.utc import utcnow
 from superdesk.tests import TestCase
 from superdesk.publish.formatters.ninjs_formatter import NINJSFormatter
 from superdesk.publish import init_app
-import json
 
 
+@mock.patch('superdesk.publish.subscribers.SubscribersService.generate_sequence_number', lambda self, subscriber: 1)
 class NinjsFormatterTest(TestCase):
     def setUp(self):
         super().setUp()
@@ -23,9 +25,10 @@ class NinjsFormatterTest(TestCase):
         init_app(self.app)
         self.maxDiff = None
 
-    def testTextFomatter(self):
+    def test_text_formatter(self):
         embargo_ts = (utcnow() + timedelta(days=2))
         article = {
+            '_id': 'tag:aap.com.au:20150613:12345',
             'guid': 'tag:aap.com.au:20150613:12345',
             '_current_version': 1,
             'anpa_category': [{'qcode': 'a'}],
@@ -33,49 +36,55 @@ class NinjsFormatterTest(TestCase):
             'headline': 'This is a test headline',
             'byline': 'joe',
             'slugline': 'slugline',
-            'subject': [{'qcode': '02011001', 'name': 'international court or tribunal'},
+            'subject': [{'qcode': '02011001', 'name': 'international court or tribunal', 'parent': None},
                         {'qcode': '02011002', 'name': 'extradition'}],
             'anpa_take_key': 'take_key',
             'unique_id': '1',
-            'type': 'preformatted',
             'body_html': 'The story body',
             'type': 'text',
             'word_count': '1',
             'priority': 1,
             'profile': 'snap',
-            '_id': 'urn:localhost.abc',
             'state': 'published',
             'urgency': 2,
             'pubstatus': 'usable',
             'creditline': 'sample creditline',
             'keywords': ['traffic'],
-            'abstract': 'sample abstract',
+            'abstract': '<p>sample <b>abstract</b></p>',
             'place': 'Australia',
-            'embargo': embargo_ts
+            'embargo': embargo_ts,
+            'body_footer': '<p>call helpline 999 if you are planning to quit smoking</p>',
+            'company_codes': [{'name': 'YANCOAL AUSTRALIA LIMITED', 'qcode': 'YAL', 'security_exchange': 'ASX'}]
         }
         seq, doc = self.formatter.format(article, {'name': 'Test Subscriber'})[0]
         expected = {
+            "guid": "tag:aap.com.au:20150613:12345",
             "version": "1",
             "place": "Australia",
             "pubstatus": "usable",
-            "body_html": "The story body",
+            "body_html": "The story body<p>call helpline 999 if you are planning to quit smoking</p>",
             "type": "text",
-            "subject": [{"qcode": "02011001", "name": "international court or tribunal"},
-                        {"qcode": "02011002", "name": "extradition"}],
+            "subject": [{"code": "02011001", "name": "international court or tribunal"},
+                        {"code": "02011002", "name": "extradition"}],
+            "service": [{"code": "a"}],
             "headline": "This is a test headline",
             "byline": "joe",
-            "_id": "urn:localhost.abc",
             "urgency": 2,
             "priority": 1,
             "embargoed": embargo_ts.isoformat(),
             "profile": "snap",
             "slugline": "slugline",
+            "description_text": "sample abstract",
+            "description_html": "<p>sample <b>abstract</b></p>",
+            'keywords': ['traffic'],
+            'organisation': [{'name': 'YANCOAL AUSTRALIA LIMITED', 'rel': 'Securities Identifier',
+                              'symbols': [{'ticker': 'YAL', 'exchange': 'ASX'}]}]
         }
         self.assertEqual(json.loads(doc), expected)
 
-    def testPictureFomatter(self):
+    def test_picture_formatter(self):
         article = {
-            '_id': '20150723001158606583',
+            'guid': '20150723001158606583',
             '_current_version': 1,
             'slugline': "AMAZING PICTURE",
             'original_source': 'AAP',
@@ -86,7 +95,7 @@ class NinjsFormatterTest(TestCase):
                     'mimetype': 'image/jpeg',
                     "height": 401
                 },
-                'original_source': {
+                'original': {
                     'href': 'https://one-api.aap.com.au/api/v3/Assets/20150723001158606583/Original/download',
                     'mimetype': 'image/jpeg'
                 },
@@ -99,19 +108,14 @@ class NinjsFormatterTest(TestCase):
             'pubstatus': 'usable',
             'source': 'AAP',
             'description': 'The most amazing picture you will ever see',
-            'guid': '20150723001158606583'
+            'guid': '20150723001158606583',
+            'body_footer': '<p>call helpline 999 if you are planning to quit smoking</p>'
         }
         seq, doc = self.formatter.format(article, {'name': 'Test Subscriber'})[0]
         expected = {
             "byline": "MICKEY MOUSE",
             "renditions": {
-                "viewImage": {
-                    "href": "http://localhost:5000/api/upload/55b032041d41c8d278d21b6f/raw?_schema=http",
-                    "mimetype": "image/jpeg",
-                    "width": 640,
-                    "height": 401
-                },
-                "original_source": {
+                "original": {
                     "href": "https://one-api.aap.com.au/api/v3/Assets/20150723001158606583/Original/download",
                     "mimetype": "image/jpeg"
                 },
@@ -120,17 +124,18 @@ class NinjsFormatterTest(TestCase):
             "pubstatus": "usable",
             "version": "1",
             "versioncreated": "2015-07-23T00:15:00.000Z",
-            "_id": "20150723001158606583",
-            "description_text": "The most amazing picture you will ever see",
+            "guid": "20150723001158606583",
+            "description_html":
+            "The most amazing picture you will ever see<p>call helpline 999 if you are planning to quit smoking</p>",
             "type": "picture",
             "priority": 5,
             "slugline": "AMAZING PICTURE",
         }
         self.assertEqual(expected, json.loads(doc))
 
-    def testCompositeFomatter(self):
+    def test_composite_formatter(self):
         article = {
-            '_id': 'urn:newsml:localhost:2015-07-24T15:05:00.116047:435c93c2-492c-4668-ab47-ae6e2b9b1c2c',
+            'guid': 'urn:newsml:localhost:2015-07-24T15:05:00.116047:435c93c2-492c-4668-ab47-ae6e2b9b1c2c',
             'groups': [
                 {
                     'id': 'root',
@@ -246,19 +251,16 @@ class NinjsFormatterTest(TestCase):
         expected = {
             "headline": "WA:Navy steps in with WA asylum-seeker boat",
             "version": "2",
-            "_id": "urn:newsml:localhost:2015-07-24T15:05:00.116047:435c93c2-492c-4668-ab47-ae6e2b9b1c2c",
+            "guid": "urn:newsml:localhost:2015-07-24T15:05:00.116047:435c93c2-492c-4668-ab47-ae6e2b9b1c2c",
             "associations": {
-                "main": [
-                    {"_id": "tag:localhost:2015:515b895a-b336-48b2-a506-5ffaf561b916", "type": "text"}
-                ],
-                "sidebars": [
-                    {
-                        "_id": "urn:newsml:localhost:2015-07-24T15:04:29.589984:af3bef9a-5002-492b-a15a-8b460e69b164",
-                        "type": "picture"
-                    }
-                ]
+                "main": {
+                    "guid": "tag:localhost:2015:515b895a-b336-48b2-a506-5ffaf561b916", "type": "text"
+                },
+                "sidebars": {
+                    "guid": "urn:newsml:localhost:2015-07-24T15:04:29.589984:af3bef9a-5002-492b-a15a-8b460e69b164",
+                    "type": "picture"
+                }
             },
-            "description_text": "",
             "versioncreated": "2015-07-24T05:05:14.000Z",
             "type": "composite",
             "pubstatus": "usable",
@@ -267,3 +269,118 @@ class NinjsFormatterTest(TestCase):
             "slugline": "Boat",
         }
         self.assertEqual(expected, json.loads(doc))
+
+    def test_item_with_usable_associations(self):
+        article = {
+            '_id': 'urn:bar',
+            'guid': 'urn:bar',
+            '_current_version': 1,
+            'type': 'text',
+            'associations': {
+                'image': {
+                    '_id': 'urn:foo',
+                    'guid': 'urn:foo',
+                    'pubstatus': 'usable',
+                    'headline': 'Foo',
+                    'type': 'picture',
+                    'task': {},
+                    'copyrightholder': 'Foo ltd.',
+                    'description_text': 'Foo picture',
+                    'renditions': {
+                        'original': {
+                            'href': 'http://example.com',
+                            'width': 100,
+                            'height': 80,
+                            'mimetype': 'image/jpeg',
+                            'CropLeft': 0,
+                        }
+                    }
+                }
+            }
+        }
+
+        seq, doc = self.formatter.format(article, {'name': 'Test Subscriber'})[0]
+        formatted = json.loads(doc)
+        self.assertIn('associations', formatted)
+        self.assertIn('image', formatted['associations'])
+        image = formatted['associations']['image']
+        self.assertEqual('urn:foo', image['guid'])
+        self.assertEqual('Foo', image['headline'])
+        self.assertEqual('usable', image['pubstatus'])
+        self.assertNotIn('task', image)
+        self.assertEqual('Foo ltd.', image['copyrightholder'])
+        self.assertEqual('Foo picture', image['description_text'])
+        rendition = image['renditions']['original']
+        self.assertEqual(100, rendition['width'])
+        self.assertEqual(80, rendition['height'])
+        self.assertEqual('image/jpeg', rendition['mimetype'])
+        self.assertNotIn('CropLeft', rendition)
+
+    def test_vidible_formatting(self):
+        article = {
+            '_id': 'tag:aap.com.au:20150613:12345',
+            'guid': 'tag:aap.com.au:20150613:12345',
+            '_current_version': 1,
+            'source': 'AAP',
+            'headline': 'This is a test headline',
+            'slugline': 'slugline',
+            'unique_id': '1',
+            'body_html': 'The story body',
+            'type': 'text',
+            'state': 'published',
+            'pubstatus': 'usable',
+            'associations': {
+                "embedded5346670761": {
+                    "uri": "56ba77bde4b0568f54a1ce68",
+                    "alt_text": "alternative",
+                    "copyrightholder": "Edouard",
+                    "copyrightnotice": "Edited with Gimp",
+                    "usageterms": "indefinite-usage",
+                    "type": "video",
+                    "title": "Embed title",
+                    "company": "Press Association",
+                    "url": "https://videos.vidible.tv/prod/2016-02/09/56ba777ce4b0b6448ed478f5_640x360.mp4",
+                    "thumbnail": "https://cdn-ssl.vidible.tv/2016-02/09/56ba777ce4b0b6448ed478f5_60x60.jpg",
+                    "duration": 100,
+                    "width": 400,
+                    "height": 200
+                }
+            }
+        }
+        seq, doc = self.formatter.format(article, {'name': 'Test Subscriber'})[0]
+        expected = {
+            "guid": "tag:aap.com.au:20150613:12345",
+            "version": "1",
+            "pubstatus": "usable",
+            "body_html": "The story body",
+            "type": "text",
+            "headline": "This is a test headline",
+            "slugline": "slugline",
+            "priority": 5,
+            'associations': {
+                "embedded5346670761": {
+                    "guid": "56ba77bde4b0568f54a1ce68",
+                    "type": "video",
+                    "version": "1",
+                    "priority": 5,
+                    "body_text": "alternative",
+                    "copyrightholder": "Edouard",
+                    "copyrightnotice": "Edited with Gimp",
+                    "usageterms": "indefinite-usage",
+                    "headline": "Embed title",
+                    "organisation": [{"name": "Press Association"}],
+                    "renditions": {
+                        "original": {
+                            "href": "https://videos.vidible.tv/prod/2016-02/09/56ba777ce4b0b6448ed478f5_640x360.mp4",
+                            "duration": 100,
+                            "width": 400,
+                            "height": 200
+                        },
+                        "thumbnail": {
+                            "href": "https://cdn-ssl.vidible.tv/2016-02/09/56ba777ce4b0b6448ed478f5_60x60.jpg"
+                        }
+                    }
+                }
+            }
+        }
+        self.assertEqual(json.loads(doc), expected)

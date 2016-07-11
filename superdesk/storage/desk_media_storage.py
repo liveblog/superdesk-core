@@ -37,7 +37,9 @@ class SuperdeskGridFSMediaStorage(GridFSMediaStorage):
 
     def media_id(self, filename, content_type=None):
         """Get media id for given filename.
+
         It can be used by async task to first generate id upload file later.
+
         :param filename: unique file name
         """
         try:
@@ -47,6 +49,7 @@ class SuperdeskGridFSMediaStorage(GridFSMediaStorage):
 
     def url_for_media(self, media_id, content_type=None):
         """Return url for givne media id.
+
         :param media_id: media id from media_id method
         """
         return upload_url(str(media_id))
@@ -56,6 +59,7 @@ class SuperdeskGridFSMediaStorage(GridFSMediaStorage):
 
     def put(self, content, filename=None, content_type=None, metadata=None, resource=None, **kwargs):
         """Store content in gridfs.
+
         :param content: binary stream
         :param filename: unique filename
         :param content_type: mime type

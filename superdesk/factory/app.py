@@ -9,12 +9,11 @@
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
 
-
 import os
+import flask
 import importlib
 import jinja2
 import eve
-import superdesk.factory.settings
 import superdesk
 from flask.ext.mail import Mail
 from eve.io.mongo import MongoJSONEncoder
@@ -23,58 +22,65 @@ from superdesk.celery_app import init_celery
 from eve.auth import TokenAuth
 from superdesk.storage.desk_media_storage import SuperdeskGridFSMediaStorage
 from superdesk.validator import SuperdeskValidator
-from raven.contrib.flask import Sentry
 from superdesk.errors import SuperdeskError, SuperdeskApiError
-from superdesk.io import providers
+from superdesk.io import registered_feeding_services
 from superdesk.datalayer import SuperdeskDataLayer  # noqa
-from logging.handlers import SysLogHandler
-sentry = Sentry(register_signal=False, wrap_wsgi=False)
+from superdesk.factory.sentry import SuperdeskSentry
+from superdesk.storage.amazon.amazon_media_storage import AmazonMediaStorage
+from superdesk.logging import configure_logging
 
 
-def configure_logging(config):
-    sys_handler = SysLogHandler(address=(config['LOG_SERVER_ADDRESS'], config['LOG_SERVER_PORT']))
-    superdesk.logger.addHandler(sys_handler)
-
-
-def get_app(config=None, media_storage=None):
+def get_app(config=None, media_storage=None, config_object=None):
     """App factory.
 
-    :param config: configuration that can override config from `settings.py`
+    :param config: configuration that can override config from `default_settings.py`
+    :param media_storage: media storage class to use
+    :param config_object: config object to load (can be module name, module or an object)
     :return: a new SuperdeskEve app instance
     """
-    if config is None:
-        config = {}
 
-    abs_path = os.path.abspath(os.path.dirname(__file__))
-    config.setdefault('APP_ABSPATH', abs_path)
+    abs_path = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    app_config = flask.Config(abs_path)
+    app_config.from_object('superdesk.factory.default_settings')
+    app_config.setdefault('APP_ABSPATH', abs_path)
+    app_config.setdefault('DOMAIN', {})
+    app_config.setdefault('SOURCES', {})
 
-    for key in dir(superdesk.factory.settings):
-        if key.isupper():
-            config.setdefault(key, getattr(superdesk.factory.settings, key))
+    if config_object:
+        app_config.from_object(config_object)
 
-    if media_storage is None:
+    try:
+        app_config.update(config or {})
+    except TypeError:
+        app_config.from_object(config)
+
+    if not media_storage and app_config.get('AMAZON_CONTAINER_NAME'):
+        media_storage = AmazonMediaStorage
+    elif not media_storage:
         media_storage = SuperdeskGridFSMediaStorage
-
-    config.setdefault('DOMAIN', {})
-    configure_logging(config)
 
     app = eve.Eve(
         data=SuperdeskDataLayer,
         auth=TokenAuth,
         media=media_storage,
-        settings=config,
+        settings=app_config,
         json_encoder=MongoJSONEncoder,
-        validator=SuperdeskValidator)
+        validator=SuperdeskValidator,
+        template_folder=os.path.join(abs_path, 'templates'))
 
     superdesk.app = app
 
+    template_paths = [abs_path + '/../templates']
+    for template_path in app_config.get('CUSTOM_TEMPLATE_PATH'):
+        template_paths.append(template_path)
+
     custom_loader = jinja2.ChoiceLoader([
         app.jinja_loader,
-        jinja2.FileSystemLoader([abs_path + '/../templates'])
-    ])
-    app.jinja_loader = custom_loader
+        jinja2.FileSystemLoader(template_paths)])
 
+    app.jinja_loader = custom_loader
     app.mail = Mail(app)
+    app.sentry = SuperdeskSentry(app)
 
     @app.errorhandler(SuperdeskError)
     def client_error_handler(error):
@@ -94,7 +100,7 @@ def get_app(config=None, media_storage=None):
 
     init_celery(app)
 
-    for module_name in app.config['INSTALLED_APPS']:
+    for module_name in app.config.get('INSTALLED_APPS', []):
         app_module = importlib.import_module(module_name)
         try:
             app_module.init_app(app)
@@ -108,14 +114,16 @@ def get_app(config=None, media_storage=None):
         prefix = app.api_prefix or None
         app.register_blueprint(blueprint, url_prefix=prefix)
 
-    # we can only put mapping when all resources are registered
-    app.data.elastic.put_mapping(app)
+    for name, jinja_filter in superdesk.JINJA_FILTERS.items():
+        app.jinja_env.filters[name] = jinja_filter
 
-    app.sentry = sentry
-    sentry.init_app(app)
+    # we can only put mapping when all resources are registered
+    app.data.init_elastic(app)
 
     # instantiate registered provider classes (leave non-classes intact)
-    for key, provider in providers.items():
-        providers[key] = provider() if isinstance(provider, type) else provider
+    for key, provider in registered_feeding_services.items():
+        registered_feeding_services[key] = provider() if isinstance(provider, type) else provider
+
+    configure_logging(app.config['LOG_CONFIG_FILE'])
 
     return app

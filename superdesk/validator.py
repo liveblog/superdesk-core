@@ -112,8 +112,8 @@ class SuperdeskValidator(Validator):
         required = list(field for field, definition in self.schema.items()
                         if definition.get('required') is True)
         missing = set(required) - set(key for key in document.keys()
-                                      if document.get(key) is not None
-                                      or not self.ignore_none_values)
+                                      if document.get(key) is not None or
+                                      not self.ignore_none_values)
         for field in missing:
             self._error(field, ERROR_REQUIRED)
 
@@ -139,3 +139,32 @@ class SuperdeskValidator(Validator):
             query = {'user': {'$exists': False}}
 
         self._is_value_unique(unique, field, value, query)
+
+    def _validate_unique_template(self, unique, field, value):
+        """Check that value is unique globally or to current user.
+
+        In case 'is_public' is false within document it will check for unique within
+        docs with same 'user' value.
+
+        Otherwise it will check for unique within docs without any 'user' value.
+        """
+        original = self._original_document or {}
+        update = self.document or {}
+
+        is_public = update.get('is_public', original.get('is_public', None))
+        template_name = update.get('template_name', original.get('template_name', None))
+
+        if is_public:
+            query = {'is_public': True}
+        else:
+            _, auth_value = auth_field_and_value(self.resource)
+            query = {'user': auth_value, 'is_public': False}
+
+        query['template_name'] = re.compile('^{}$'.format(re.escape(template_name.strip())), re.IGNORECASE)
+
+        if self._id:
+            id_field = config.DOMAIN[self.resource]['id_field']
+            query[id_field] = {'$ne': self._id}
+
+        if superdesk.get_resource_service(self.resource).find_one(req=None, **query):
+            self._error(field, "Template Name is not unique")
