@@ -99,7 +99,7 @@ class AmazonMediaStorage(MediaStorage):
             url_generator = url_for_media_default
         return url_generator(self.app, media_id)
 
-def media_id(self, filename, content_type=None, version=True):
+    def media_id(self, filename, content_type=None, version=True):
         """ Gets the media_id path for the `filename` given.
             if filename doesn't have an extension one is guessed,
             and additional `version` option to have automatic version or not to have,
