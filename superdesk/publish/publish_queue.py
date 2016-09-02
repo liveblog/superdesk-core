@@ -14,8 +14,23 @@ from superdesk import get_resource_service
 from superdesk.notification import push_notification
 from superdesk.resource import Resource
 from superdesk.services import BaseService
+from superdesk.utils import SuperdeskBaseEnum
+from flask import current_app as app
 
 logger = logging.getLogger(__name__)
+
+
+PUBLISHED_IN_PACKAGE = 'published_in_package'
+
+
+class QueueState(SuperdeskBaseEnum):
+    PENDING = 'pending'
+    IN_PROGRESS = 'in-progress'
+    RETRYING = 'retrying'
+    SUCCESS = 'success'
+    CANCELED = 'canceled'
+    ERROR = 'error'
+    FAILED = 'failed'
 
 
 class PublishQueueResource(Resource):
@@ -24,7 +39,10 @@ class PublishQueueResource(Resource):
         'item_version': {'type': 'integer', 'nullable': False},
 
         'formatted_item': {'type': 'string', 'nullable': False},
+        'item_encoding': {'type': 'string', 'nullable': True},
+        'encoded_item_id': {'type': 'objectid', 'nullable': True},
         'subscriber_id': Resource.rel('subscribers'),
+        'codes': {'type': 'list', 'nullable': True},
         'destination': {
             'type': 'dict',
             'schema': {
@@ -34,9 +52,14 @@ class PublishQueueResource(Resource):
                 'config': {'type': 'dict'}
             }
         },
+        PUBLISHED_IN_PACKAGE: {
+            'type': 'string'
+        },
         'published_seq_num': {
             'type': 'integer'
         },
+        # publish_schedule is to indicate the item schedule datetime.
+        # entries in the queue are created after schedule has elasped.
         'publish_schedule': {
             'type': 'datetime'
         },
@@ -61,12 +84,26 @@ class PublishQueueResource(Resource):
         },
         'state': {
             'type': 'string',
-            'allowed': ['pending', 'in-progress', 'success', 'canceled', 'error'],
+            'allowed': QueueState.values(),
             'nullable': False
         },
         'error_message': {
             'type': 'string'
-        }
+        },
+        # to indicate the queue item is moved to legal
+        # True is set after state of the item is success, cancelled or failed. For other state it is false
+        'moved_to_legal': {
+            'type': 'boolean',
+            'default': False
+        },
+        'retry_attempt': {
+            'type': 'integer',
+            'default': 0
+        },
+        'next_retry_attempt_at': {
+            'type': 'datetime'
+        },
+        'ingest_provider': Resource.rel('ingest_providers', nullable=True)
     }
 
     additional_lookup = {
@@ -74,7 +111,8 @@ class PublishQueueResource(Resource):
         'field': 'item_id'
     }
 
-    datasource = {'default_sort': [('_created', -1)]}
+    etag_ignore_fields = ['moved_to_legal']
+    datasource = {'default_sort': [('_created', -1), ('subscriber_id', 1), ('published_seq_num', -1)]}
     privileges = {'POST': 'publish_queue', 'PATCH': 'publish_queue'}
 
 
@@ -84,7 +122,8 @@ class PublishQueueService(BaseService):
         subscriber_service = get_resource_service('subscribers')
 
         for doc in docs:
-            doc['state'] = 'pending'
+            doc['state'] = QueueState.PENDING.value
+            doc['moved_to_legal'] = False
 
             if 'published_seq_num' not in doc:
                 subscriber = subscriber_service.find_one(req=None, _id=doc['subscriber_id'])
@@ -99,6 +138,19 @@ class PublishQueueService(BaseService):
                               state=updates.get('state'),
                               error_message=updates.get('error_message')
                               )
+
+    def delete(self, lookup):
+        # as encoded item is added manually to storage
+        # we also need to remove it manually on delete
+        cur = self.get_from_mongo(req=None, lookup=lookup)
+        for doc in cur:
+            try:
+                encoded_item_id = doc['encoded_item_id']
+            except KeyError:
+                pass
+            else:
+                app.storage.delete(encoded_item_id)
+        return super().delete(lookup)
 
     def delete_by_article_id(self, _id):
         lookup = {'item_id': _id}

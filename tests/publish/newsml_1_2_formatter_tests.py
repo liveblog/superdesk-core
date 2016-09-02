@@ -7,6 +7,7 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
+from unittest import mock
 
 from superdesk.utc import utcnow
 
@@ -17,8 +18,11 @@ import datetime
 from superdesk.publish import init_app
 
 
+@mock.patch('superdesk.publish.subscribers.SubscribersService.generate_sequence_number', lambda self, subscriber: 1)
 class Newsml12FormatterTest(TestCase):
     article = {
+        '_id': 'urn:localhost.abc',
+        'guid': 'urn:localhost.abc',
         'source': 'AAP',
         'anpa_category': [{'qcode': 'a', 'name': 'Australian General News'}],
         'headline': 'This is a test headline',
@@ -27,13 +31,11 @@ class Newsml12FormatterTest(TestCase):
         'subject': [{'qcode': '02011001'}, {'qcode': '02011002'}],
         'anpa_take_key': 'take_key',
         'unique_id': '1',
-        'type': 'preformatted',
-        'body_html': 'The story body',
+        'body_html': '<p>The story body</p>',
         'type': 'text',
         'word_count': '1',
         'priority': 1,
         '_current_version': 5,
-        '_id': 'urn:localhost.abc',
         'state': 'published',
         'urgency': 2,
         'pubstatus': 'usable',
@@ -58,10 +60,14 @@ class Newsml12FormatterTest(TestCase):
             {'qcode': 'NSW', 'name': 'NSW', 'state': 'New South Wales',
              'country': 'Australia', 'world_region': 'Oceania'}
         ],
-        'ednote': 'this is test'
+        'ednote': 'this is test',
+        'body_footer': '<p>call helpline 999 if you are planning to quit smoking</p>',
+        'company_codes': [{'name': 'YANCOAL AUSTRALIA LIMITED', 'qcode': 'YAL', 'security_exchange': 'ASX'}]
     }
 
     preformatted = {
+        '_id': 'urn:localhost.123',
+        'guid': 'urn:localhost.123',
         'source': 'AAP',
         'anpa_category': [{'qcode': 'a', 'name': 'Australian General News'}],
         'headline': 'This is a test headline',
@@ -72,9 +78,7 @@ class Newsml12FormatterTest(TestCase):
         'unique_id': '1',
         'type': 'preformatted',
         'body_html': 'The story body',
-        'type': 'preformatted',
         'word_count': '1',
-        '_id': 'urn:localhost.123',
         '_current_version': 5,
         'state': 'published',
         'urgency': 2,
@@ -90,6 +94,7 @@ class Newsml12FormatterTest(TestCase):
 
     picture = {
         '_id': 'tag:localhost:2015:cf15b059-b997-4e34-a103-85b8d7ea4ba3',
+        'guid': 'tag:localhost:2015:cf15b059-b997-4e34-a103-85b8d7ea4ba3',
         'firstcreated': '2015-09-20T06:12:57.000Z',
         'versioncreated': '2015-09-20T06:14:11.000Z',
         'dateline': {
@@ -128,7 +133,6 @@ class Newsml12FormatterTest(TestCase):
         },
         'state': 'published',
         'anpa_category': [{'qcode': 'a', 'name': 'Australian General News'}],
-        'guid': '20150731001161435160',
         'source': 'AAP Image',
         '_current_version': 1,
         'original_source': 'AAP Image/AAP',
@@ -308,6 +312,7 @@ class Newsml12FormatterTest(TestCase):
 
     package = {
         '_id': 'urn:newsml:localhost:2015-08-12T11:59:58.457029:7e90d257-92f6-406d-9186-95653b211701',
+        'guid': 'urn:newsml:localhost:2015-08-12T11:59:58.457029:7e90d257-92f6-406d-9186-95653b211701',
         'type': 'composite',
         '_current_version': 1,
         'groups': [
@@ -341,7 +346,6 @@ class Newsml12FormatterTest(TestCase):
         'pubstatus': 'usable',
         'state': 'published',
         'marked_for_not_publication': False,
-        'guid': 'urn:newsml:localhost:2015-08-12T11:59:58.457029:7e90d257-92f6-406d-9186-95653b211701',
         'dateline': {
             'located': {
                 'alt_name': '',
@@ -717,7 +721,7 @@ class Newsml12FormatterTest(TestCase):
         self.formatter._format_news_component(self.article, self.newsml)
         self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/Role').
                          get('FormalName'), 'Main')
-        self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/NewsLines/Headline').
+        self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/NewsLines/HeadLine').
                          text, 'This is a test headline')
         self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/NewsLines/ByLine').
                          text, 'joe')
@@ -728,20 +732,30 @@ class Newsml12FormatterTest(TestCase):
         self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/NewsLines/KeywordLine').
                          text, 'slugline')
         self.assertEqual(
-            self.newsml.findall('NewsComponent/NewsComponent/DescriptiveMetadata/SubjectCode/Subject')[0].
-            get('FormalName'), '02011001')
+            self.newsml.findall(
+                'NewsComponent/NewsComponent/DescriptiveMetadata/SubjectCode/Subject')[0].get('FormalName'), '02011001')
         self.assertEqual(
-            self.newsml.findall('NewsComponent/NewsComponent/DescriptiveMetadata/SubjectCode/Subject')[1].
-            get('FormalName'), '02011002')
-        self.assertEqual(self.newsml.find('NewsComponent/NewsComponent/DescriptiveMetadata/Property').
-                         get('Value'), 'a')
+            self.newsml.findall(
+                'NewsComponent/NewsComponent/DescriptiveMetadata/SubjectCode/Subject')[1].get('FormalName'), '02011002')
+        self.assertEqual(self.newsml.find(
+            'NewsComponent/NewsComponent/DescriptiveMetadata/Property').get('Value'), 'a')
         self.assertEqual(
-            self.newsml.findall('NewsComponent/NewsComponent/NewsComponent/ContentItem/DataContent')[0].
-            text, 'sample abstract')
+            self.newsml.findall(
+                'NewsComponent/NewsComponent/NewsComponent/ContentItem/DataContent')[0].text, 'sample abstract')
+        self.assertEqual(self.newsml.findall(
+            'NewsComponent/NewsComponent/NewsComponent/ContentItem/DataContent/nitf/body/body.content/p')[0].text,
+            'The story body')
         self.assertEqual(
-            self.newsml.findall('NewsComponent/NewsComponent/NewsComponent/ContentItem/DataContent')[1].
-            text, 'The story body')
+            self.newsml.findall(
+                'NewsComponent/NewsComponent/NewsComponent/ContentItem/DataContent/nitf/body/body.content/p')[1].text,
+            'call helpline 999 if you are planning to quit smoking')
         self.assertEqual(self.newsml.find('.//NewsLines/NewsLine/NewsLineText').text, 'this is test')
+
+        company_info = self.newsml.find('NewsComponent/NewsComponent/Metadata/Property[@FormalName="Ticker Symbol"]')
+        self.assertEqual(company_info.attrib['Value'], 'YAL')
+
+        company_info = self.newsml.find('NewsComponent/NewsComponent/Metadata/Property[@FormalName="Exchange"]')
+        self.assertEqual(company_info.attrib['Value'], 'ASX')
 
     def test_format_news_management_for_embargo(self):
         embargo_ts = (utcnow() + datetime.timedelta(days=2))
@@ -762,16 +776,17 @@ class Newsml12FormatterTest(TestCase):
     def test_format_place(self):
         doc = self.article.copy()
         self.formatter._format_place(doc, self.newsml)
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="CountryArea"]').text, "New South Wales")
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="Country"]').text, "Australia")
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="WorldRegion"]').text, "Oceania")
+        self.assertEqual(self.newsml.find(
+            'Location/Property[@FormalName="CountryArea"]').get('Value'), "New South Wales")
+        self.assertEqual(self.newsml.find('Location/Property[@FormalName="Country"]').get('Value'), "Australia")
+        self.assertEqual(self.newsml.find('Location/Property[@FormalName="WorldRegion"]').get('Value'), "Oceania")
 
     def test_format_dateline(self):
         doc = self.article.copy()
         self.formatter._format_dateline(doc, self.newsml)
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="City"]').text, "Los Angeles")
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="CountryArea"]').text, "California")
-        self.assertEqual(self.newsml.find('Location/Property[@FormalName="Country"]').text, "USA")
+        self.assertEqual(self.newsml.find('Location/Property[@FormalName="City"]').get('Value'), "Los Angeles")
+        self.assertEqual(self.newsml.find('Location/Property[@FormalName="CountryArea"]').get('Value'), "California")
+        self.assertEqual(self.newsml.find('Location/Property[@FormalName="Country"]').get('Value'), "USA")
 
     def test_duration(self):
         self.assertEqual(self.formatter._get_total_duration(None), 0)
@@ -785,7 +800,7 @@ class Newsml12FormatterTest(TestCase):
         seq, xml_str = self.formatter.format(doc, {'name': 'Test Subscriber'})[0]
         xml = etree.fromstring(xml_str)
 
-        self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/Headline').text,
+        self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/HeadLine').text,
                          'NUS CHRISTOPHER PYNE PROTEST')
         self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/ByLine').text, 'TRACEY NEARMY')
         self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/CreditLine').text, 'AAP Image/AAP')
@@ -809,7 +824,7 @@ class Newsml12FormatterTest(TestCase):
         doc = self.video.copy()
         seq, xml_str = self.formatter.format(doc, {'name': 'Test Subscriber'})[0]
         xml = etree.fromstring(xml_str)
-        self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/Headline').text, 'test video')
+        self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/HeadLine').text, 'test video')
         self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/ByLine').text, 'test video')
         self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/CreditLine').text, 'AAP Video/AAP')
         self.assertEqual(xml.find('NewsItem/NewsComponent/NewsComponent/NewsLines/KeywordLine').text,

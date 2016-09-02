@@ -11,32 +11,22 @@
 from superdesk.publish.publish_service import PublishService
 from superdesk.publish import register_transmitter
 from superdesk.errors import PublishFileError
+from os import path
 
 errors = [PublishFileError.fileSaveError().get_error_description()]
 
 
 class FilePublishService(PublishService):
     def _transmit(self, queue_item, subscriber):
-        config = queue_item.get('destination', {}).get('config', {})
-
         try:
-            if isinstance(queue_item['formatted_item'], bytes):
-                self.copy_file(config, queue_item)
-            elif isinstance(queue_item['formatted_item'], str):
-                queue_item['formatted_item'] = queue_item['formatted_item'].encode('utf-8')
-                self.copy_file(config, queue_item)
-            else:
-                raise Exception
+            config = queue_item['destination']['config']
+            file_path = config['file_path']
+            if not path.isabs(file_path):
+                file_path = "/" + file_path
+            with open(path.join(file_path, PublishService.get_filename(queue_item)), 'wb') as f:
+                f.write(queue_item['encoded_item'])
         except Exception as ex:
             raise PublishFileError.fileSaveError(ex, config)
-
-    def copy_file(self, config, queue_item):
-        with open('{}/{}-{}-{}.{}'.format(config['file_path'],
-                                          queue_item['item_id'].replace(':', '-'),
-                                          str(queue_item.get('item_version', '')),
-                                          str(queue_item.get('published_seq_num', '')),
-                                          config.get('file_extension', 'txt')), 'wb') as f:
-            f.write(queue_item['formatted_item'])
 
 
 register_transmitter('File', FilePublishService(), errors)

@@ -1,8 +1,34 @@
+# Superdesk Server Changelog
 
-+## [unreleased]
+## [Unreleased]
 
-- feat(ninjs): output profile and slugline in ninjs
-- fix(celery): use application context for task error handling
-- fix(websockets): remove client when connection is closed
-- add `service.find` method which is using mongo syntax for queries
+## [1.1] 2016-08-29
 
+### Added
+
+- Add destination picker for unspike action.
+- Highlight matching terms in search results.
+
+### Fixed
+
+- Add missing associations data to HTTP PUSH publishing.
+- Fix select area of interest func for embedded pictures.
+- Fix uploading/editing of dictionaries.
+- Filter out inactive search providers.
+- Fix error when setting default value for cv field.
+- Fix publishing of stories with feature image.
+- Fix `LDAP_SERVER_PORT` setting not being integer.
+- Fix duplicate subject codes parsing for nitf.
+- Strip markup while matching content filters
+- Make newly created items invisible, show it only after saving.
+
+
+## [1.0] 2016-08-17
+
+### Fixed
+
+- Fix the handling of `anpa_take_key` for null values.
+
+## [1.0-beta1] 2016-04-25
+
+- initial release

@@ -96,7 +96,7 @@ register('eve/json', dumps, loads, content_type='application/json')
 def handle_exception(exc):
     """Log exception to logger and sentry."""
     logger.exception(exc)
-    superdesk.app.sentry.captureException(exc)
+    superdesk.app.sentry.captureException()
 
 
 class AppContextTask(TaskBase):
@@ -168,32 +168,20 @@ def update_key(key, flag=False, db=None):
 
 def _update_subtask_progress(task_id, current=None, total=None, done=None):
     redis_db = redis.from_url(celery.conf['CELERY_RESULT_BACKEND'])
+    try:
+        current_key = 'current_%s' % task_id
+        total_key = 'total_%s' % task_id
+        done_key = 'done_%s' % task_id
 
-    current_key = 'current_%s' % task_id
-    total_key = 'total_%s' % task_id
-    done_key = 'done_%s' % task_id
+        crt_current = update_key(current_key, current, redis_db)
+        crt_total = update_key(total_key, total, redis_db)
+        crt_done = update_key(done_key, done, redis_db)
 
-    crt_current = update_key(current_key, current, redis_db)
-    crt_total = update_key(total_key, total, redis_db)
-    crt_done = update_key(done_key, done, redis_db)
+        if crt_done and crt_current == crt_total:
+            redis_db.delete(current_key)
+            redis_db.delete(crt_total)
+            redis_db.delete(done_key)
 
-    if crt_done and crt_current == crt_total:
-        redis_db.delete(current_key)
-        redis_db.delete(crt_total)
-        redis_db.delete(done_key)
-
-    return task_id, crt_current, crt_total
-
-
-def set_key(key, value=0, db=None):
-    """
-    Sets the value of a key in Redis
-    :param key: Name of the Key
-    :param value: Value to be set
-    :param db: if None the Redis db object is constructed again
-    """
-
-    if db is None:
-        db = app.redis
-
-    db.set(key, value)
+        return task_id, crt_current, crt_total
+    finally:
+        redis_db.disconnect()

@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 registered_transmitters = {}
 transmitter_errors = {}
 
-subscriber_types = ['broadcast', 'digital', 'wire', 'all']
-SUBSCRIBER_TYPES = namedtuple('SUBSCRIBER_TYPES', ['BROADCAST', 'DIGITAL', 'WIRE', 'ALL'])(*subscriber_types)
+subscriber_types = ['digital', 'wire', 'all']
+subscriber_media_types = ['media', 'non-media', 'both']
+SUBSCRIBER_TYPES = namedtuple('SUBSCRIBER_TYPES', ['DIGITAL', 'WIRE', 'ALL'])(*subscriber_types)
+SUBSCRIBER_MEDIA_TYPES = namedtuple('SUBSCRIBER_MEDIA_TYPES', ['MEDIA', 'NONMEDIA', 'BOTH'])(*subscriber_media_types)
 
 
 def register_transmitter(transmitter_type, transmitter, errors):
@@ -36,13 +38,17 @@ def transmit():
 
 
 # must be imported for registration
-import superdesk.publish.transmitters  # NOQA
-import superdesk.publish.formatters  # NOQA
-from superdesk.publish.subscribers import SubscribersResource, SubscribersService
-from superdesk.publish.publish_queue import PublishQueueResource, PublishQueueService
+from superdesk.publish.subscribers import SubscribersResource, SubscribersService  # NOQA
+from superdesk.publish.publish_queue import PublishQueueResource, PublishQueueService  # NOQA
 
 
 def init_app(app):
+    # XXX: we need to do imports for transmitters and formatters here
+    #      so classes creation is done after PublishService is set
+    #      this is a temporary workaround until a proper plugin system
+    #      is implemented in Superdesk
+    import superdesk.publish.transmitters  # NOQA
+    import superdesk.publish.formatters  # NOQA
     endpoint_name = 'subscribers'
     service = SubscribersService(endpoint_name, backend=get_backend())
     SubscribersResource(endpoint_name, app=app, service=service)
