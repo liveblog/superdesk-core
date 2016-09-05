@@ -20,6 +20,7 @@ from flask import url_for, request, current_app as app
 from superdesk.media.renditions import generate_renditions, delete_file_on_error
 from superdesk.media.media_operations import download_file_from_url, process_file_from_stream, \
     crop_image, decode_metadata, download_file_from_encoded_str
+from superdesk.filemeta import set_filemeta
 
 
 bp = superdesk.Blueprint('upload_raw', __name__)
@@ -51,15 +52,7 @@ def get_upload_as_data_uri(media_id):
 
 
 def url_for_media(media_id, mimetype=None):
-    try:
-        url = app.media.url_for_media(media_id, mimetype)
-        if url:
-            return url
-        return url_for('upload_raw.get_upload_as_data_uri', media_id=media_id,
-                       _external=True, _schema=superdesk.config.URL_PROTOCOL)
-    except AttributeError:
-        return url_for('upload_raw.get_upload_as_data_uri', media_id=media_id,
-                       _external=True, _schema=superdesk.config.URL_PROTOCOL)
+    return app.media.url_for_media(media_id, mimetype)
 
 
 def upload_url(media_id):
@@ -125,7 +118,7 @@ class UploadService(BaseService):
         # retrieve file name and metadata from file
         file_name, content_type, metadata = process_file_from_stream(content, content_type=content_type)
         # crop the file if needed, can change the image size
-        was_cropped, out = crop_image(content, filename, self.get_cropping_data(doc))
+        was_cropped, out = crop_image(content, filename, doc)
         # the length in metadata could be updated if it was cropped
         if was_cropped:
             file_name, content_type, metadata_after_cropped = process_file_from_stream(out, content_type=content_type)
@@ -138,11 +131,11 @@ class UploadService(BaseService):
                                     resource=self.datasource, metadata=metadata)
             doc['media'] = file_id
             doc['mimetype'] = content_type
-            doc['filemeta'] = decode_metadata(metadata)
+            set_filemeta(doc, decode_metadata(metadata))
             inserted = [doc['media']]
             file_type = content_type.split('/')[0]
             rendition_spec = config.RENDITIONS['avatar']
-            renditions = generate_renditions(out, doc['media'], inserted, file_type,
+            renditions = generate_renditions(out, file_id, inserted, file_type,
                                              content_type, rendition_spec, url_for_media)
             doc['renditions'] = renditions
         except Exception as io:
@@ -150,13 +143,6 @@ class UploadService(BaseService):
             for file_id in inserted:
                 delete_file_on_error(doc, file_id)
             raise SuperdeskApiError.internalError('Generating renditions failed')
-
-    def get_cropping_data(self, doc):
-        if all([doc.get('CropTop', None) is not None, doc.get('CropLeft', None) is not None,
-                doc.get('CropRight', None) is not None, doc.get('CropBottom', None) is not None]):
-            cropping_data = (doc['CropLeft'], doc['CropTop'], doc['CropRight'], doc['CropBottom'])
-            return cropping_data
-        return None
 
     def download_file(self, doc):
         url = doc.get('URL')

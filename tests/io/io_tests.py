@@ -12,11 +12,11 @@ import os
 import unittest
 
 from superdesk.etree import etree, get_word_count
-from superdesk.io import get_xml_parser
-
-from superdesk.io.newsml_1_2 import NewsMLOneParser
-from superdesk.io.newsml_2_0 import NewsMLTwoParser
-from superdesk.io.nitf import NITFParser
+from superdesk.io import registered_feed_parsers
+from superdesk.io.feed_parsers.newsml_1_2 import NewsMLOneFeedParser
+from superdesk.io.feed_parsers.newsml_2_0 import NewsMLTwoFeedParser
+from superdesk.io.feed_parsers.nitf import NITFFeedParser
+from superdesk.io.feeding_services.file_service import FileFeedingService
 
 
 def get_etree(filename):
@@ -37,15 +37,18 @@ class UtilsTest(unittest.TestCase):
 
     def test_get_xml_parser_newsmlg2(self):
         etree = get_etree('snep.xml')
-        self.assertIsInstance(get_xml_parser(etree), NewsMLTwoParser)
+        self.assertIsInstance(FileFeedingService().get_feed_parser({'feed_parser': 'newsml2'}, etree),
+                              NewsMLTwoFeedParser)
 
     def test_get_xml_parser_nitf(self):
         etree = get_etree('nitf-fishing.xml')
-        self.assertIsInstance(get_xml_parser(etree), NITFParser)
+        self.assertIsInstance(FileFeedingService().get_feed_parser({'feed_parser': 'nitf'}, etree),
+                              NITFFeedParser)
 
     def test_get_xml_parser_newsml12(self):
         etree = get_etree('afp.xml')
-        self.assertIsInstance(get_xml_parser(etree), NewsMLOneParser)
+        self.assertIsInstance(FileFeedingService().get_feed_parser({'feed_parser': 'newsml12'}, etree),
+                              NewsMLOneFeedParser)
 
 
 class ItemTest(unittest.TestCase):
@@ -53,7 +56,10 @@ class ItemTest(unittest.TestCase):
     def setUpFixture(self, filename):
         self.tree = get_etree(filename)
         provider = {'name': 'Test'}
-        self.item = get_xml_parser(self.tree).parse_message(self.tree, provider)[0]
+
+        for parser in registered_feed_parsers.values():
+            if parser.can_parse(self.tree):
+                self.item = parser.parse(self.tree, provider)[0]
 
 
 class TextParserTest(ItemTest):
@@ -64,9 +70,8 @@ class TextParserTest(ItemTest):
         self.assertTrue(self.item)
 
     def test_parse_id(self):
-        self.assertEqual("tag:reuters.com,0000:newsml_L4N0BT5PJ", self.item.get('guid'))
+        self.assertEqual("tag:reuters.com,0000:newsml_L4N0BT5PJ:263518268", self.item.get('guid'))
         self.assertEqual('263518268', self.item.get('version'))
-        self.assertEqual(self.item.get('guid'), self.item.get('uri'))
         self.assertEqual(3, self.item.get('priority'))
 
     def test_parse_item_meta(self):
@@ -80,8 +85,7 @@ class TextParserTest(ItemTest):
         self.assertEqual("SOCCER-ENGLAND/CHELSEA-BENITEZ", self.item["slugline"])
         self.assertEqual("Soccer-Smiling Benitez pleads for support "
                          "after midweek outburst against opponent", self.item["headline"])
-        self.assertEqual("Bangalore", self.item.get("dateline", {}).get('located', {}).get('city'))
-        self.assertEqual("SOCCER-ENGLAND/CHELSEA-BENITEZ:Soccer-Smiling Benitez pleads for support after midweek outburst", self.item.get('description'))  # noqa
+        self.assertEqual("SOCCER-ENGLAND/CHELSEA-BENITEZ:Soccer-Smiling Benitez pleads for support after midweek outburst", self.item.get('description_text'))  # noqa
 
     def test_content_set(self):
         self.assertEqual("<p>By Toby Davis</p>", self.item.get('body_html'))
@@ -146,7 +150,7 @@ class SNEPParserTest(ItemTest):
 
         ref = group.get('refs')[0]
         self.assertTrue(ref)
-        self.assertEqual("tag:reuters.com,0000:newsml_BRE9220HA", ref.get('residRef'))
+        self.assertEqual("tag:reuters.com,0000:newsml_BRE9220HA:15", ref.get('residRef'))
         self.assertEqual("application/vnd.iptc.g2.packageitem+xml", ref.get('contentType'))
         self.assertEqual("icls:composite", ref.get('itemClass'))
         self.assertEqual("At least 15 killed on Kenya coast on election day", ref.get('headline'))

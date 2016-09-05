@@ -33,8 +33,7 @@ class UsersResource(Resource):
             },
             'password': {
                 'type': 'string',
-                'minlength': 5,
-                'readonly': self.readonly
+                'minlength': 5
             },
             'first_name': {
                 'type': 'string',
@@ -45,8 +44,7 @@ class UsersResource(Resource):
                 'readonly': self.readonly
             },
             'display_name': {
-                'type': 'string',
-                'readonly': self.readonly
+                'type': 'string'
             },
             'email': {
                 'unique': True,
@@ -54,8 +52,11 @@ class UsersResource(Resource):
                 'required': True
             },
             'phone': {
-                'type': 'phone_number',
-                'readonly': self.readonly,
+                'type': 'string',
+                'nullable': True
+            },
+            'language': {
+                'type': 'string',
                 'nullable': True
             },
             'user_info': {
@@ -92,11 +93,21 @@ class UsersResource(Resource):
             'desk': Resource.rel('desks'),  # Default desk of the user, which would be selected when logged-in.
             SIGN_OFF: {  # Used for putting a sign-off on the content when it's created/updated except kill
                 'type': 'string',
-                'required': True,
+                'required': False,
                 'regex': '^[a-zA-Z0-9]+$'
             },
             BYLINE: {
                 'type': 'string',
+                'required': False,
+                'nullable': True
+            },
+            # list to hold invisible stages.
+            # This field is updated under following scenario:
+            # 1. stage visible flag is updated
+            # 2. desk membership is modified
+            # 3. new user is created
+            'invisible_stages': {
+                'type': 'list',
                 'required': False,
                 'nullable': True
             }
@@ -115,7 +126,7 @@ class UsersResource(Resource):
             'desk'
         ]
 
-        self.etag_ignore_fields = ['session_preferences', '_etag']
+        self.etag_ignore_fields = ['session_preferences', '_etag', 'invisible_stages']
 
         self.datasource = {
             'projection': {'password': 0},

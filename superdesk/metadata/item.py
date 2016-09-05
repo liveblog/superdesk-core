@@ -15,6 +15,7 @@ from eve.utils import config
 from superdesk.utils import SuperdeskBaseEnum
 
 not_analyzed = {'type': 'string', 'index': 'not_analyzed'}
+not_indexed = {'type': 'string', 'index': 'no'}
 GUID_TAG = 'tag'
 GUID_FIELD = 'guid'
 GUID_NEWSML = 'newsml'
@@ -30,7 +31,11 @@ CONTENT_TYPE = namedtuple('CONTENT_TYPE',
                           ['TEXT', 'PREFORMATTED', 'AUDIO', 'VIDEO',
                            'PICTURE', 'GRAPHIC', 'COMPOSITE'])(*content_type)
 
+MEDIA_TYPES = ('audio', 'video', 'picture', 'graphic')
+
 ITEM_STATE = 'state'
+ITEM_PRIORITY = 'priority'
+ITEM_URGENCY = 'urgency'
 content_state = ['draft', 'ingested', 'routed', 'fetched', 'submitted', 'in_progress', 'spiked',
                  'published', 'killed', 'corrected', 'scheduled', 'on_hold']
 CONTENT_STATE = namedtuple('CONTENT_STATE', ['DRAFT', 'INGESTED', 'ROUTED', 'FETCHED', 'SUBMITTED', 'PROGRESS',
@@ -38,10 +43,15 @@ CONTENT_STATE = namedtuple('CONTENT_STATE', ['DRAFT', 'INGESTED', 'ROUTED', 'FET
                                              'SCHEDULED', 'HOLD'])(*content_state)
 PUBLISH_STATES = {CONTENT_STATE.PUBLISHED, CONTENT_STATE.SCHEDULED, CONTENT_STATE.CORRECTED, CONTENT_STATE.KILLED}
 
+FORMAT = 'format'
+formats = ['HTML', 'preserved']
+FORMATS = namedtuple('FORMAT', ['HTML', 'PRESERVED'])(*formats)
 
 BYLINE = 'byline'
 SIGN_OFF = 'sign_off'
 EMBARGO = 'embargo'
+PUBLISH_SCHEDULE = 'publish_schedule'
+SCHEDULE_SETTINGS = 'schedule_settings'
 
 metadata_schema = {
     config.ID_FIELD: {
@@ -103,14 +113,19 @@ metadata_schema = {
         'type': 'string',
         'mapping': not_analyzed
     },
-
     # Copyright Information
     'usageterms': {
         'type': 'string',
-        'mapping': not_analyzed,
         'nullable': True,
     },
-
+    'copyrightnotice': {
+        'type': 'string',
+        'nullable': True
+    },
+    'copyrightholder': {
+        'type': 'string',
+        'nullable': True
+    },
     # Category Details
     'anpa_category': {
         'type': 'list',
@@ -135,10 +150,23 @@ metadata_schema = {
     },
     'genre': {
         'type': 'list',
+        'nullable': True,
         'mapping': {
+            'type': 'object',
             'properties': {
                 'name': not_analyzed,
-                'value': not_analyzed
+                'qcode': not_analyzed
+            }
+        }
+    },
+    'company_codes': {
+        'type': 'list',
+        'mapping': {
+            'type': 'object',
+            'properties': {
+                'qcode': not_analyzed,
+                'name': not_analyzed,
+                'security_exchange': not_analyzed
             }
         }
     },
@@ -156,7 +184,6 @@ metadata_schema = {
     },
     'language': {
         'type': 'string',
-        'default': 'en',
         'mapping': not_analyzed,
         'nullable': True,
     },
@@ -169,15 +196,34 @@ metadata_schema = {
     },
     'slugline': {
         'type': 'string',
-        'mapping': not_analyzed
+        'mapping': {
+            'type': 'string',
+            'fields': {
+                'phrase': {
+                    'type': 'string',
+                    'analyzer': 'phrase_prefix_analyzer',
+                    'search_analyzer': 'phrase_prefix_analyzer'
+                }
+            }
+        }
     },
     'anpa_take_key': {
         'type': 'string',
         'nullable': True,
     },
+    'correction_sequence': {
+        'type': 'integer',
+        'mapping': not_analyzed
+    },
+    'rewrite_sequence': {
+        'type': 'integer',
+        'mapping': not_analyzed
+    },
     'keywords': {
         'type': 'list',
-        'mapping': not_analyzed
+        'mapping': {
+            'type': 'string'
+        }
     },
     'word_count': {
         'type': 'integer'
@@ -192,6 +238,7 @@ metadata_schema = {
     },
     'profile': {
         'type': 'string',
+        'nullable': True
     },
 
     # Related to state of an article
@@ -210,7 +257,8 @@ metadata_schema = {
         'type': 'string',
         'allowed': pub_status,
         'default': PUB_STATUS.USABLE,
-        'mapping': not_analyzed
+        'mapping': not_analyzed,
+        'nullable': True,
     },
     'signal': {
         'type': 'string',
@@ -225,13 +273,14 @@ metadata_schema = {
         'type': 'string',
         'nullable': True,
     },
-    'description': {
+    'description_text': {
         'type': 'string',
         'nullable': True
     },
     'groups': {
         'type': 'list',
-        'minlength': 1
+        'minlength': 1,
+        'nullable': True,
     },
     'body_html': {
         'type': 'string',
@@ -263,6 +312,13 @@ metadata_schema = {
         'type': 'string',
         'mapping': not_analyzed
     },
+    'poi': {
+        'type': 'dict',
+        'schema': {
+            'x': {'type': 'float', 'nullable': False},
+            'y': {'type': 'float', 'nullable': False}
+        },
+    },
     'renditions': {
         'type': 'dict'
     },
@@ -278,14 +334,18 @@ metadata_schema = {
     'contents': {
         'type': 'list'
     },
+    'associations': {
+        'type': 'dict',
+    },
+    'alt_text': {
+        'type': 'string',
+        'nullable': True
+    },
 
     # aka Locator as per NewML Specification
     'place': {
         'type': 'list',
-        'nullable': True,
-        'schema': {
-            'type': 'dict'
-        }
+        'nullable': True
     },
 
     # Not Categorized
@@ -311,10 +371,13 @@ metadata_schema = {
         'type': 'list',
         'schema': Resource.rel('highlights', True)
     },
-    'more_coming': {'type': 'boolean', 'default': False},
+
+    'more_coming': {'type': 'boolean'},  # deprecated
+
     # Field which contains all the sign-offs done on this article, eg. twd/jwt/ets
     SIGN_OFF: {
-        'type': 'string'
+        'type': 'string',
+        'nullable': True,
     },
 
     # Desk and Stage Details
@@ -332,7 +395,50 @@ metadata_schema = {
         'type': 'datetime',
         'versioned': False
     },
-    'lock_session': Resource.rel('auth')
+    'lock_session': Resource.rel('auth'),
+
+    # template used to create an item
+    'template': Resource.rel('content_templates'),
+
+    'body_footer': {  # Public Service Announcements
+        'type': 'string',
+        'nullable': True,
+        'mapping': not_indexed,
+    },
+
+    'flags': {
+        'type': 'dict',
+        'schema': {
+            'marked_for_not_publication': {
+                'type': 'boolean',
+                'default': False
+            },
+            'marked_for_legal': {
+                'type': 'boolean',
+                'default': False
+            },
+            'marked_archived_only': {
+                'type': 'boolean',
+                'default': False
+            },
+            'marked_for_sms': {
+                'type': 'boolean',
+                'default': False
+            }
+        }
+    },
+
+    'sms_message': {
+        'type': 'string',
+        'mapping': not_analyzed,
+        'nullable': True
+    },
+
+    FORMAT: {
+        'type': 'string',
+        'mapping': not_analyzed,
+        'default': FORMATS.HTML
+    }
 }
 
 metadata_schema['lock_user']['versioned'] = False

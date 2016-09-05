@@ -17,11 +17,14 @@ from eve.utils import config
 from superdesk.publish.formatters import Formatter
 import superdesk
 from superdesk.errors import FormatterError
-from superdesk.metadata.item import ITEM_TYPE, CONTENT_TYPE, EMBARGO, ITEM_STATE, CONTENT_STATE
+from superdesk.metadata.item import ITEM_TYPE, CONTENT_TYPE, EMBARGO, ITEM_STATE, CONTENT_STATE,\
+    GUID_FIELD
 from superdesk.metadata.packages import PACKAGE_TYPE, GROUP_ID, REFS, RESIDREF, ROLE, ROOT_GROUP
 from superdesk.utc import utcnow
 from flask import current_app as app
-
+from apps  .archive.common import get_utc_schedule
+from bs4 import BeautifulSoup
+from superdesk.filemeta import get_filemeta
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +46,12 @@ class NewsML12Formatter(Formatter):
         CONTENT_TYPE.TEXT: 'Text'
     }
 
-    def format(self, article, subscriber):
+    def format(self, article, subscriber, codes=None):
         """
         Create article in NewsML1.2 format
         :param dict article:
         :param dict subscriber:
+        :param list codes:
         :return [(int, str)]: return a List of tuples. A tuple consist of
             publish sequence number and formatted article string.
         :raises FormatterError: if the formatter fails to format an article
@@ -92,7 +96,7 @@ class NewsML12Formatter(Formatter):
         date_id = article.get('firstcreated').strftime("%Y%m%d")
         SubElement(news_identifier, 'ProviderId').text = app.config['NEWSML_PROVIDER_ID']
         SubElement(news_identifier, 'DateId').text = date_id
-        SubElement(news_identifier, 'NewsItemId').text = article[config.ID_FIELD]
+        SubElement(news_identifier, 'NewsItemId').text = article[GUID_FIELD]
         SubElement(news_identifier, 'RevisionId', attrib=revision).text = str(article.get(config.VERSION, ''))
         SubElement(news_identifier, 'PublicIdentifier').text = \
             self._generate_public_identifier(article[config.ID_FIELD], article.get(config.VERSION, ''),
@@ -137,7 +141,8 @@ class NewsML12Formatter(Formatter):
             SubElement(news_management, 'Status', {'FormalName': 'Embargoed'})
             status_will_change = SubElement(news_management, 'StatusWillChange')
             SubElement(status_will_change, 'FutureStatus', {'FormalName': article['pubstatus']})
-            SubElement(status_will_change, 'DateAndTime').text = article[EMBARGO].isoformat()
+            SubElement(status_will_change, 'DateAndTime').text = \
+                get_utc_schedule(article, EMBARGO).isoformat()
         else:
             SubElement(news_management, 'Status', {'FormalName': article['pubstatus']})
 
@@ -161,6 +166,15 @@ class NewsML12Formatter(Formatter):
         self._format_news_lines(article, main_news_component)
         self._format_rights_metadata(article, main_news_component)
         self._format_descriptive_metadata(article, main_news_component)
+
+        for company in article.get('company_codes', []):
+            metadata = SubElement(main_news_component, 'Metadata')
+            SubElement(metadata, 'MetadataType', attrib={'FormalName': 'Securities Identifier'})
+            SubElement(metadata, 'Property', attrib={'FormalName': 'Name', 'Value': company.get('name', '')})
+            SubElement(metadata, 'Property', attrib={'FormalName': 'Ticker Symbol', 'Value': company.get('qcode', '')})
+            SubElement(metadata, 'Property', attrib={'FormalName': 'Exchange',
+                                                     'Value': company.get('security_exchange', '')})
+
         if article.get(ITEM_TYPE) == CONTENT_TYPE.COMPOSITE and article.get(PACKAGE_TYPE, '') == '':
             self._format_package(article, main_news_component)
         elif article.get(ITEM_TYPE) in {CONTENT_TYPE.TEXT, CONTENT_TYPE.PREFORMATTED, CONTENT_TYPE.COMPOSITE}:
@@ -177,9 +191,9 @@ class NewsML12Formatter(Formatter):
         """
         news_lines = SubElement(main_news_component, "NewsLines")
         if article.get('headline'):
-            SubElement(news_lines, 'Headline').text = article.get('headline')
+            SubElement(news_lines, 'HeadLine').text = article.get('headline')
         if article.get('byline'):
-            SubElement(news_lines, 'ByLine').text = article.get('byline')
+            SubElement(news_lines, 'ByLine').text = article.get('byline') or ''
         if article.get('dateline', {}).get('text', ''):
             SubElement(news_lines, 'DateLine').text = article.get('dateline', {}).get('text', '')
         SubElement(news_lines, 'CreditLine').text = article.get('original_source', article.get('source', ''))
@@ -227,13 +241,13 @@ class NewsML12Formatter(Formatter):
         for subject in article.get('subject', []):
             SubElement(subject_code, 'Subject', {'FormalName': subject.get('qcode', '')})
 
+        self._format_dateline(article, descriptive_metadata)
+        self._format_place(article, descriptive_metadata)
+
         if 'anpa_category' in article:
             for category in article.get('anpa_category', []):
                 SubElement(descriptive_metadata, 'Property',
                            {'FormalName': 'Category', 'Value': category['qcode']})
-
-        self._format_dateline(article, descriptive_metadata)
-        self._format_place(article, descriptive_metadata)
 
     def _format_place(self, article, descriptive_metadata):
         """
@@ -250,13 +264,13 @@ class NewsML12Formatter(Formatter):
                                       'Location', attrib={'HowPresent': 'RelatesTo'})
                 if place.get('state'):
                     SubElement(location, 'Property',
-                               {'FormalName': 'CountryArea'}).text = place.get('state')
+                               {'FormalName': 'CountryArea', 'Value': place.get('state')})
                 if place.get('country'):
                     SubElement(location, 'Property',
-                               {'FormalName': 'Country'}).text = place.get('country')
+                               {'FormalName': 'Country', 'Value': place.get('country')})
                 if place.get('world_region'):
                     SubElement(location, 'Property',
-                               {'FormalName': 'WorldRegion'}).text = place.get('world_region')
+                               {'FormalName': 'WorldRegion', 'Value': place.get('world_region')})
 
     def _format_dateline(self, article, descriptive_metadata):
         """
@@ -269,13 +283,13 @@ class NewsML12Formatter(Formatter):
             location_elm = SubElement(descriptive_metadata, 'Location', attrib={'HowPresent': 'Origin'})
             if located.get('city'):
                 SubElement(location_elm, 'Property',
-                           attrib={'FormalName': 'City'}).text = located.get('city')
+                           attrib={'FormalName': 'City', 'Value': located.get('city')})
             if located.get('state'):
                 SubElement(location_elm, 'Property',
-                           attrib={'FormalName': 'CountryArea'}).text = located.get('state')
+                           attrib={'FormalName': 'CountryArea', 'Value': located.get('state')})
             if located.get('country'):
                 SubElement(location_elm, 'Property',
-                           attrib={'FormalName': 'Country'}).text = located.get('country')
+                           attrib={'FormalName': 'Country', 'Value': located.get('country')})
 
     def _format_abstract(self, article, main_news_component):
         """
@@ -288,7 +302,8 @@ class NewsML12Formatter(Formatter):
         content_item = SubElement(abstract_news_component, "ContentItem")
         SubElement(content_item, 'MediaType', {'FormalName': 'Text'})
         SubElement(content_item, 'Format', {'FormalName': 'Text'})
-        SubElement(content_item, 'DataContent').text = article.get('abstract', '')
+        soup = BeautifulSoup(article.get('abstract', ''), 'html.parser')
+        SubElement(content_item, 'DataContent').text = soup.get_text()
 
     def _format_body(self, article, main_news_component):
         """
@@ -298,11 +313,14 @@ class NewsML12Formatter(Formatter):
         """
         body_news_component = SubElement(main_news_component, "NewsComponent")
         SubElement(body_news_component, 'Role', {'FormalName': 'BodyText'})
-        SubElement(body_news_component, 'Format', {'FormalName': 'Text'})
         content_item = SubElement(body_news_component, "ContentItem")
         SubElement(content_item, 'MediaType', {'FormalName': 'Text'})
-        SubElement(content_item, 'Format', {'FormalName': 'Text'})
-        SubElement(content_item, 'DataContent').text = article.get('body_html', '')
+        SubElement(content_item, 'Format', {'FormalName': 'NITF'})
+        data_content = SubElement(content_item, 'DataContent')
+        nitf = SubElement(data_content, 'nitf')
+        body = SubElement(nitf, 'body')
+        body_content = SubElement(body, 'body.content')
+        self.map_html_to_xml(body_content, self.append_body_footer(article))
 
     def _format_description(self, article, main_news_component):
         """
@@ -315,7 +333,7 @@ class NewsML12Formatter(Formatter):
         content_item = SubElement(desc_news_component, "ContentItem")
         SubElement(content_item, 'MediaType', {'FormalName': 'Text'})
         SubElement(content_item, 'Format', {'FormalName': 'Text'})
-        SubElement(content_item, 'DataContent').text = article.get('description', '')
+        SubElement(content_item, 'DataContent').text = self.append_body_footer(article)
 
     def _format_media(self, article, main_news_component, media_type):
         """
@@ -333,8 +351,8 @@ class NewsML12Formatter(Formatter):
             SubElement(content_item, 'MediaType', {'FormalName': media_type})
             SubElement(content_item, 'Format', {'FormalName': value.get('mimetype', '')})
             characteristics = SubElement(content_item, 'Characteristics')
-            if rendition == 'original' and 'filemeta' in article and 'length' in article['filemeta']:
-                SubElement(characteristics, 'SizeInBytes').text = str(article.get('filemeta').get('length'))
+            if rendition == 'original' and get_filemeta(article, 'length'):
+                SubElement(characteristics, 'SizeInBytes').text = str(get_filemeta(article, 'length'))
             if article.get(ITEM_TYPE) == CONTENT_TYPE.PICTURE:
                 if value.get('width'):
                     SubElement(characteristics, 'Property',
@@ -343,16 +361,16 @@ class NewsML12Formatter(Formatter):
                     SubElement(characteristics, 'Property',
                                attrib={'FormalName': 'Height', 'Value': str(value.get('height'))})
             elif article.get(ITEM_TYPE) in {CONTENT_TYPE.VIDEO, CONTENT_TYPE.AUDIO}:
-                if article.get('filemeta', {}).get('width'):
+                if get_filemeta(article, 'width'):
                     SubElement(characteristics, 'Property',
                                attrib={'FormalName': 'Width',
-                                       'Value': str(article.get('filemeta', {}).get('width'))})
-                if article.get('filemeta', {}).get('height'):
+                                       'Value': str(get_filemeta(article, 'width'))})
+                if get_filemeta(article, 'height'):
                     SubElement(characteristics, 'Property',
                                attrib={'FormalName': 'Height',
-                                       'Value': str(article.get('filemeta', {}).get('height'))})
+                                       'Value': str(get_filemeta(article, 'height'))})
 
-                duration = self._get_total_duration(article.get('filemeta', {}).get('duration'))
+                duration = self._get_total_duration(get_filemeta(article, 'duration'))
                 if duration:
                     SubElement(characteristics, 'Property',
                                attrib={'FormalName': 'TotalDuration', 'Value': str(duration)})

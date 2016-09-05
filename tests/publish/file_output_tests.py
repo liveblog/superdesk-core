@@ -28,13 +28,15 @@ class FileOutputTest(TestCase):
                                                "config": {"file_path": self.fixtures}
                                                }]}]
 
-    def test_file_write_binary(self):
+    def test_file_write(self):
         item = {'item_id': 'test_file_name',
                 'item_version': 1,
                 'published_seq_num': 1,
-                'formatted_item': b'I was here',
+                'formatted_item': 'I was here',
+                'encoded_item': b'I was here',
+                'item_encoding': 'utf-8',
                 'destination': {"name": "test", "delivery_type": "File", "format": "nitf",
-                                "config": {"file_path": self.fixtures}}
+                                "config": {"file_path": self.fixtures, "file_extension": "txt"}}
                 }
         service = FilePublishService()
         try:
@@ -45,11 +47,13 @@ class FileOutputTest(TestCase):
             if os.path.isfile(path):
                 os.remove(path)
 
-    def test_file_write_string(self):
+    def test_format_default_file_extension(self):
         item = {'item_id': 'test_file_name',
                 'item_version': 1,
                 'published_seq_num': 1,
                 'formatted_item': 'I was here',
+                'encoded_item': b'I was here',
+                'item_encoding': 'utf-8',
                 'destination': {"name": "test", "delivery_type": "File", "format": "nitf",
                                 "config": {"file_path": self.fixtures}}
                 }
@@ -58,7 +62,16 @@ class FileOutputTest(TestCase):
             service._transmit(item, self.subscribers)
             self.assertTrue(True)
         finally:
-            path = os.path.join(self.fixtures, 'test_file_name-1-1.txt')
+            path = os.path.join(self.fixtures, 'test_file_name-1-1.ntf')
+            if os.path.isfile(path):
+                os.remove(path)
+
+        item['destination']['config']['file_extension'] = ''
+        try:
+            service._transmit(item, self.subscribers)
+            self.assertTrue(True)
+        finally:
+            path = os.path.join(self.fixtures, 'test_file_name-1-1.ntf')
             if os.path.isfile(path):
                 os.remove(path)
 
@@ -67,6 +80,8 @@ class FileOutputTest(TestCase):
         item = {'item_id': 'test_file_name',
                 'item_version': 1,
                 'formatted_item': 'I was here',
+                'encoded_item': b'I was here',
+                'item_encoding': 'utf-8',
                 'destination': {"name": "test", "delivery_type": "File", "format": "nitf",
                                 "config": {"file_path": self.fixtures}}
                 }

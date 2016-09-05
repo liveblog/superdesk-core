@@ -157,6 +157,10 @@ class InvalidStateTransitionError(SuperdeskApiError):
 
 
 class SuperdeskIngestError(SuperdeskError):
+    _codes = {
+        2000: 'Configured Feed Parser either not found or not registered with the application'
+    }
+
     def __init__(self, code, exception, provider=None):
         super().__init__(code)
         self.system_exception = exception
@@ -176,6 +180,10 @@ class SuperdeskIngestError(SuperdeskError):
                 logger.error("{}: {} on channel {}".format(self, exception, self.provider_name))
             else:
                 logger.error("{}: {}".format(self, exception))
+
+    @classmethod
+    def parserNotFoundError(cls, exception=None, provider=None):
+        return SuperdeskIngestError(2000, exception, provider)
 
 
 class ProviderError(SuperdeskIngestError):
@@ -232,8 +240,7 @@ class ParserError(SuperdeskIngestError):
         1005: 'NewsML2 input could not be processed',
         1006: 'NITF input could not be processed',
         1007: 'WENN input could not be processed',
-        1008: 'ZCZC input could not be processed',
-        1009: 'IPTC7901 input could not be processed'
+        1008: 'IPTC7901 input could not be processed'
     }
 
     @classmethod
@@ -269,12 +276,8 @@ class ParserError(SuperdeskIngestError):
         return ParserError(1007, exception, provider)
 
     @classmethod
-    def ZCZCParserError(cls, exception=None, provider=None):
-        return ParserError(1008, exception, provider)
-
-    @classmethod
     def IPTC7901ParserError(cls, exception=None, provider=None):
-        return ParserError(1009, exception, provider)
+        return ParserError(1008, exception, provider)
 
 
 class IngestFileError(SuperdeskIngestError):
@@ -302,6 +305,7 @@ class IngestApiError(SuperdeskIngestError):
         4005: 'API ingest xml parse error',
         4006: 'API service not found(404) error',
         4007: 'API authorization error',
+        4008: 'Authentication URL is missing from Ingest Provider configuraion'
     }
 
     @classmethod
@@ -351,7 +355,7 @@ class IngestFtpError(SuperdeskIngestError):
     def ftpUnknownParserError(cls, exception=None, provider=None, filename=None):
         if provider:
             logger.exception("Provider: {} - File: {} unknown file format. "
-                             "Parser couldn't be found.".format(provider.get('name', 'Unknown provider'), filename))
+                             "FeedParser couldn't be found.".format(provider.get('name', 'Unknown provider'), filename))
         return IngestFtpError(5001, exception, provider)
 
 
@@ -385,13 +389,13 @@ class SuperdeskPublishError(SuperdeskError):
         if exception:
             exception_msg = str(exception)[-200:]
             update_notifiers('error',
-                             'Error [%s] on ingest provider {{name}}: %s' % (code, exception_msg),
-                             resource='ingest_providers' if destination else None,
+                             'Error [%s] on a Subscriber''s destination {{name}}: %s' % (code, exception_msg),
+                             resource='subscribers' if destination else None,
                              name=self.destination_name,
                              provider_id=destination.get('_id', ''))
 
             if destination:
-                logger.error("{}: {} on channel {}".format(self, exception, self.destination_name))
+                logger.error("{}: {} on destination {}".format(self, exception, self.destination_name))
             else:
                 logger.error("{}: {}".format(self, exception))
 
@@ -404,7 +408,9 @@ class FormatterError(SuperdeskPublishError):
         7004: 'Article couldn"t be converted to NinJS',
         7005: 'Article couldn"t be converted to NewsML 1.2 format',
         7006: 'Article couldn"t be converted to NewsML G2 format',
-        7008: 'Article couldn"t be converted to AAP SMS format'
+        7008: 'Article couldn"t be converted to AAP SMS format',
+        7009: 'Article couldn"t be converted to AAP Newscentre',
+        7008: 'Article couldn"t be converted to Email'
     }
 
     @classmethod
@@ -438,6 +444,14 @@ class FormatterError(SuperdeskPublishError):
     @classmethod
     def AAPSMSFormatterError(cls, exception=None, destination=None):
         return FormatterError(7008, exception, destination)
+
+    @classmethod
+    def AAPNewscentreFormatterError(cls, exception=None, destination=None):
+        return FormatterError(7009, exception, destination)
+
+    @classmethod
+    def EmailFormatterError(cls, exception=None, destination=None):
+        return FormatterError(7010, exception, destination)
 
 
 class SubscriberError(SuperdeskPublishError):
@@ -547,3 +561,27 @@ class PublishHTTPPushError(SuperdeskPublishError):
     @classmethod
     def httpPushError(cls, exception=None, destination=None):
         return PublishHTTPPushError(14000, exception, destination)
+
+
+class PublishHTTPPushClientError(PublishHTTPPushError):
+    _codes = {
+        14001: "HTTP push publish client error",
+    }
+
+    @classmethod
+    def httpPushError(cls, exception=None, destination=None):
+        return PublishHTTPPushClientError(14001, exception, destination)
+
+
+class PublishHTTPPushServerError(PublishHTTPPushError):
+    _codes = {
+        14002: "HTTP push publish server error",
+    }
+
+    @classmethod
+    def httpPushError(cls, exception=None, destination=None):
+        return PublishHTTPPushServerError(14002, exception, destination)
+
+
+class AlreadyExistsError(Exception):
+    pass

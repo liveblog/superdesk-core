@@ -17,6 +17,10 @@ import requests
 from superdesk.publish import SUBSCRIBER_TYPES
 from superdesk.publish.transmitters.http_push import HTTPPushService
 
+from unittest import mock
+from unittest.mock import Mock
+from superdesk.errors import PublishHTTPPushServerError, PublishHTTPPushClientError
+
 
 class ItemNotFound(Exception):
     pass
@@ -28,8 +32,9 @@ class HTTPPushPublishTestCase(unittest.TestCase):
         super().setUp()
 
         if 'HTTP_PUSH_RESOURCE_URL' not in os.environ:
-            return
-        self.resource_url = os.environ['HTTP_PUSH_RESOURCE_URL']
+            self.resource_url = ''
+        else:
+            self.resource_url = os.environ['HTTP_PUSH_RESOURCE_URL']
 
         self.subscribers = [{"_id": "1", "name": "Test", "media_type": "media",
                              "subscriber_type": SUBSCRIBER_TYPES.DIGITAL, "is_active": True,
@@ -56,10 +61,15 @@ class HTTPPushPublishTestCase(unittest.TestCase):
                                      "config": {"resource_url": self.resource_url}
                                      }}
 
+        self.destination = self.item.get('destination', {})
+
     def is_item_published(self, item_id):
         """Return True if the item was published, False otherwise.
         Raises Exception in case of server/communication error.
         """
+        if not getattr(self, 'resource_url', None):
+            return
+
         response = requests.get(self.getItemURL(item_id))
         if response.status_code == requests.codes.not_found:  # @UndefinedVariable
             return False
@@ -75,6 +85,14 @@ class HTTPPushPublishTestCase(unittest.TestCase):
         """
         return '%s/%s' % (self.resource_url, item_id)
 
+    def test_get_assets_url(self):
+        service = HTTPPushService()
+        self.assertEqual(service._get_assets_url(self.destination), None)
+
+    def test_get_resource_url(self):
+        service = HTTPPushService()
+        self.assertEqual(service._get_resource_url(self.destination), self.resource_url)
+
     def test_publish_an_item(self):
         if not getattr(self, 'resource_url', None):
             return
@@ -89,3 +107,33 @@ class HTTPPushPublishTestCase(unittest.TestCase):
         item = requests.get(self.getItemURL(self.item['item_id'])).json()
         self.assertEqual(item['headline'], 'headline2')
         self.assertEqual(item['version'], 2)
+
+    @mock.patch('superdesk.errors.notifiers')
+    @mock.patch('requests.post')
+    def test_client_publish_error_thrown(self, fake_post, fake_notifiers):
+        raise_http_exception = Mock(side_effect=PublishHTTPPushClientError.httpPushError(Exception('client 4xx')))
+
+        fake_post.return_value = Mock(status_code=401, text='client 4xx', raise_for_status=raise_http_exception)
+
+        # needed for bad exception handling classes
+        fake_notifiers.return_value = []
+
+        service = HTTPPushService()
+
+        with self.assertRaises(PublishHTTPPushClientError):
+            service._push_item(self.destination, json.dumps(self.item))
+
+    @mock.patch('superdesk.errors.notifiers')
+    @mock.patch('requests.post')
+    def test_server_publish_error_thrown(self, fake_post, fake_notifiers):
+        raise_http_exception = Mock(side_effect=PublishHTTPPushServerError.httpPushError(Exception('server 5xx')))
+
+        fake_post.return_value = Mock(status_code=503, text='server 5xx', raise_for_status=raise_http_exception)
+
+        # needed for bad exception handling classes
+        fake_notifiers.return_value = []
+
+        service = HTTPPushService()
+
+        with self.assertRaises(PublishHTTPPushServerError):
+            service._push_item(self.destination, json.dumps(self.item))

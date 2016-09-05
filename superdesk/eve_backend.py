@@ -9,13 +9,16 @@
 # at https://www.sourcefabric.org/superdesk/license
 
 
-from flask import current_app as app
+import eve.io.base
+
+from flask import current_app as app, json
 from eve.utils import document_etag, config, ParsedRequest
 from eve.io.mongo import MongoJSONEncoder
 from superdesk.utc import utcnow
 from superdesk.logging import logger, item_msg
 from eve.methods.common import resolve_document_etag
-from elasticsearch.exceptions import RequestError
+from elasticsearch.exceptions import RequestError, NotFoundError
+from superdesk.errors import SuperdeskApiError
 
 
 class EveBackend():
@@ -51,6 +54,20 @@ class EveBackend():
         req.max_results = max_results
         return self.get_from_mongo(endpoint_name, req, None)
 
+    def search(self, endpoint_name, source):
+        """Search for items using search backend
+
+        :param string endpoint_name
+        :param dict source
+        """
+        req = ParsedRequest()
+        req.args = {'source': json.dumps(source)}
+        search_backend = self._lookup_backend(endpoint_name)
+        if search_backend:
+            return search_backend.find(endpoint_name, req, {})
+        else:
+            logger.warn('there is no search backend for %s' % endpoint_name)
+
     def get(self, endpoint_name, req, lookup):
         backend = self._lookup_backend(endpoint_name, fallback=True)
         cursor = backend.find(endpoint_name, req, lookup)
@@ -68,6 +85,10 @@ class EveBackend():
 
     def find_and_modify(self, endpoint_name, **kwargs):
         backend = self._backend(endpoint_name)
+
+        if kwargs.get('query'):
+            kwargs['query'] = backend._mongotize(kwargs['query'], endpoint_name)
+
         return backend.driver.db[endpoint_name].find_and_modify(**kwargs)
 
     def create(self, endpoint_name, docs, **kwargs):
@@ -109,10 +130,10 @@ class EveBackend():
             updated.update(updates)
             resolve_document_etag(updated, endpoint_name)
             updates[config.ETAG] = updated[config.ETAG]
-        return self.system_update(endpoint_name, id, updates, original)
+        return self._change_request(endpoint_name, id, updates, original)
 
     def system_update(self, endpoint_name, id, updates, original):
-        """Only update what is provided, without affecting etag/last_updated.
+        """Only update what is provided, without affecting etag.
 
         This is useful when you want to make some changes without affecting users.
 
@@ -121,20 +142,50 @@ class EveBackend():
         :param updates: changes made to document
         :param original: original document
         """
-        backend = self._backend(endpoint_name)
-        res = backend.update(endpoint_name, id, updates, original)
+        updates.setdefault(config.LAST_UPDATED, utcnow())
+        updated = original.copy()
+        updated.pop(config.ETAG, None)  # make sure we update
+        return self._change_request(endpoint_name, id, updates, updated)
 
+    def _change_request(self, endpoint_name, id, updates, original):
+        backend = self._backend(endpoint_name)
         search_backend = self._lookup_backend(endpoint_name)
-        if search_backend is not None:
+
+        try:
+            backend.update(endpoint_name, id, updates, original)
+        except eve.io.base.DataLayer.OriginalChangedError:
+            if not backend.find_one(endpoint_name, req=None, _id=id):
+                # item is in elastic, not in mongo - not good
+                logger.warn("Item is missing in mongo resource=%s id=%s".format(endpoint_name, id))
+                self.remove_from_search(endpoint_name, id)
+                raise SuperdeskApiError.notFoundError()
+            else:
+                # item is there, but no change was done - ok
+                logger.exception('Item : {} not updated in collection {}. '
+                                 'Updates are : {}'.format(id, endpoint_name, updates))
+                return updates
+
+        if search_backend:
             doc = backend.find_one(endpoint_name, req=None, _id=id)
             search_backend.update(endpoint_name, id, doc)
 
-        return res if res is not None else updates
+        return updates
 
     def replace(self, endpoint_name, id, document, original):
         res = self.replace_in_mongo(endpoint_name, id, document, original)
         self.replace_in_search(endpoint_name, id, document, original)
         return res
+
+    def update_in_mongo(self, endpoint_name, id, updates, original):
+        updates.setdefault(config.LAST_UPDATED, utcnow())
+        if config.ETAG not in updates:
+            updated = original.copy()
+            updated.update(updates)
+            resolve_document_etag(updated, endpoint_name)
+            updates[config.ETAG] = updated[config.ETAG]
+        backend = self._backend(endpoint_name)
+        res = backend.update(endpoint_name, id, updates, original)
+        return res if res is not None else updates
 
     def replace_in_mongo(self, endpoint_name, id, document, original):
         backend = self._backend(endpoint_name)
@@ -158,29 +209,32 @@ class EveBackend():
         search_backend = self._lookup_backend(endpoint_name)
         docs = self.get_from_mongo(endpoint_name, lookup=lookup, req=ParsedRequest())
         ids = [doc[config.ID_FIELD] for doc in docs]
-        res = backend.remove(endpoint_name, {config.ID_FIELD: {'$in': ids}})
-        if res and res.get('n', 0) > 0 and search_backend is not None:
-            self._remove_documents_from_search_backend(endpoint_name, ids)
-
-        if res and res.get('n', 0) == 0:
+        removed_ids = ids
+        logger.info("total documents to be removed {}".format(len(ids)))
+        if search_backend and ids:
+            removed_ids = []
+            # first remove it from search backend, so it won't show up. when this is done - remove it from mongo
+            for _id in ids:
+                try:
+                    self.remove_from_search(endpoint_name, _id)
+                    removed_ids.append(_id)
+                except NotFoundError:
+                    logger.warning('item missing from elastic _id=%s' % (_id, ))
+                    removed_ids.append(_id)
+                except:
+                    logger.exception('item can not be removed from elastic _id=%s' % (_id, ))
+        backend.remove(endpoint_name, {config.ID_FIELD: {'$in': removed_ids}})
+        logger.info("Removed {} documents from {}.".format(len(ids), endpoint_name))
+        if not ids:
             logger.warn("No documents for {} resource were deleted using lookup {}".format(endpoint_name, lookup))
 
-        return res
+    def remove_from_search(self, endpoint_name, _id):
+        """Remove document from search backend.
 
-    def _remove_documents_from_search_backend(self, endpoint_name, ids):
+        :param endpoint_name
+        :param _id
         """
-        remove documents from search backend.
-        :param endpoint_name: name of the endpoint
-        :param ids: list of ids
-        """
-        ids = [str(doc_id) for doc_id in ids]
-        batch_size = 500
-        logger.info("total documents to be removed {}".format(len(ids)))
-        for i in range(0, len(ids), batch_size):
-            batch = ids[i:i + batch_size]
-            query = {'query': {'terms': {'{}._id'.format(endpoint_name): batch}}}
-            app.data._search_backend(endpoint_name).remove(endpoint_name, query)
-            logger.info("Removed {} documents from {}.".format(len(batch), endpoint_name))
+        app.data._search_backend(endpoint_name).remove(endpoint_name, {'_id': str(_id)})
 
     def _datasource(self, endpoint_name):
         return app.data._datasource(endpoint_name)[0]

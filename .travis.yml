@@ -2,31 +2,33 @@ language: python
 
 sudo: false
 
-env:
-    - TARGET=unit
-
 python:
     - "3.4"
 
 services:
-    - mongodb
     - elasticsearch
+    - mongodb
     - redis-server
+
+addons:
+  apt:
+    sources:
+    - mongodb-3.0-precise
+    - elasticsearch-1.7
+    packages:
+    - mongodb-org-server
+    - elasticsearch
 
 cache:
   directories:
     - $HOME/.cache/pip
 
 install:
-    - if [ "${TARGET}" = "unit" ] ; then
-        pip install -r requirements.txt && pip install coveralls==1.0a2;
-      fi
+    - pip install .
+    - pip install -r requirements.txt
 
 script:
-    - if [ "${TARGET}" = "unit" ]; then
-        flake8;
-        nosetests --with-coverage --cover-package=superdesk ;
-      fi
+    - flake8
+    - nosetests
+    - behave --format progress3 --logging-level ERROR
 
-after_script:
-    - killall -9 python

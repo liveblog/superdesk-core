@@ -7,15 +7,21 @@
 # For the full copyright and license information, please see the
 # AUTHORS and LICENSE files distributed with this source code, or
 # at https://www.sourcefabric.org/superdesk/license
-from eve.utils import config
 
+import hashlib
+from datetime import timedelta
+from superdesk.utc import utcnow
+from bson.json_util import dumps
 from flask.ext.mail import Message
 from superdesk.celery_app import celery
 from flask import current_app as app, render_template, render_template_string
 from superdesk import get_resource_service
 
 
-@celery.task(bind=True, max_retries=3, soft_time_limit=10)
+EMAIL_TIMESTAMP_RESOURCE = 'email_timestamps'
+
+
+@celery.task(bind=True, max_retries=3, soft_time_limit=100)
 def send_email(self, subject, sender, recipients, text_body, html_body):
     msg = Message(subject, sender=sender, recipients=recipients)
     msg.body = text_body
@@ -25,7 +31,7 @@ def send_email(self, subject, sender, recipients, text_body, html_body):
 
 def send_activate_account_email(doc):
     user = get_resource_service('users').find_one(req=None, _id=doc['user'])
-    first_name = user['first_name']
+    first_name = user.get('first_name')
     activate_ttl = app.config['ACTIVATE_ACCOUNT_TOKEN_TIME_TO_LIVE']
     app_name = app.config['APPLICATION_NAME']
     admins = app.config['ADMINS']
@@ -36,7 +42,7 @@ def send_activate_account_email(doc):
     text_body = render_template("account_created.txt", app_name=app_name, user=user,
                                 first_name=first_name, instance_url=client_url, expires=hours, url=url)
     html_body = render_template("account_created.html", app_name=app_name, user=user,
-                                instance_url=client_url, expires=hours, url=url)
+                                first_name=first_name, instance_url=client_url, expires=hours, url=url)
     send_email.delay(subject=subject, sender=admins[0], recipients=[doc['email']],
                      text_body=text_body, html_body=html_body)
 
@@ -76,7 +82,24 @@ def send_user_mentioned_email(recipients, user_name, doc, url):
                      text_body=text_body, html_body=html_body)
 
 
+def get_activity_digest(value):
+    h = hashlib.sha1()
+    json_encoder = app.data.json_encoder_class()
+    h.update(dumps(value, sort_keys=True,
+                   default=json_encoder.default).encode('utf-8'))
+    return h.hexdigest()
+
+
 def send_activity_emails(activity, recipients):
+    now = utcnow()
+    message_id = get_activity_digest(activity)
+    email_timestamps = app.data.get_mongo_collection(EMAIL_TIMESTAMP_RESOURCE)
+    last_message_info = email_timestamps.find_one(message_id)
+    resend_interval = app.config.get('EMAIL_NOTIFICATION_RESEND', 24)
+
+    if last_message_info and last_message_info['_created'] + timedelta(hours=resend_interval) > now:
+        return
+
     admins = app.config['ADMINS']
     app_name = app.config['APPLICATION_NAME']
     notification = render_template_string(activity.get('message'), **activity.get('data'))
@@ -85,25 +108,19 @@ def send_activity_emails(activity, recipients):
     subject = render_template("notification_subject.txt", notification=notification)
     send_email.delay(subject=subject, sender=admins[0], recipients=recipients,
                      text_body=text_body, html_body=html_body)
+    email_timestamps.update({'_id': message_id}, {'_id': message_id, '_created': now}, upsert=True)
 
 
-def send_article_killed_email(article, recipients, trasmitted_at):
+def send_article_killed_email(article, recipients, transmitted_at):
     admins = app.config['ADMINS']
     app_name = app.config['APPLICATION_NAME']
+    place = next(iter(article.get('place') or []), '')
+    if place:
+        place = place.get('qcode', '')
+    body = article.get('body_html', '')
 
-    headline = article.get('headline', '')
-    trasmitted_at = article[config.LAST_UPDATED] if trasmitted_at is None else trasmitted_at
-
-    text_body = render_template("article_killed.txt",
-                                OrganizationNameAbbreviation=app.config['ORGANIZATION_NAME_ABBREVIATION'],
-                                OrganizationName=app.config['ORGANIZATION_NAME'], headline=headline,
-                                slugline=article.get('slugline'),
-                                trasmitted_at=trasmitted_at, app_name=app_name)
-    html_body = render_template("article_killed.html",
-                                OrganizationNameAbbreviation=app.config['ORGANIZATION_NAME_ABBREVIATION'],
-                                OrganizationName=app.config['ORGANIZATION_NAME'], headline=headline,
-                                slugline=article.get('slugline'),
-                                trasmitted_at=trasmitted_at, app_name=app_name)
+    text_body = render_template("article_killed.txt", app_name=app_name, place=place, body=body)
+    html_body = render_template("article_killed.html", app_name=app_name, place=place, body=body)
 
     send_email.delay(subject='Transmission from circuit: E_KILL_', sender=admins[0], recipients=recipients,
                      text_body=text_body, html_body=html_body)

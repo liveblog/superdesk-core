@@ -1,9 +1,12 @@
+
 from flask import json
 
 
 def set_filemeta(item, metadata):
     """Set filemeta info into item for storage.
+
     it's json encoded so it can be stored into elastic without mapping
+
     :param item: news item dict
     :param metadata: metadata dict
     """
@@ -12,6 +15,7 @@ def set_filemeta(item, metadata):
 
 def get_filemeta(item, key=None, default_value=None):
     """Get file metadata.
+
     :param item: news item dict
     :param key: key string
     :param default_value
