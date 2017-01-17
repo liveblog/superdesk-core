@@ -39,7 +39,7 @@ install_requires = [
     'statsd>=3.1',
     'httmock>=1.2.3',
     'boto3>=1.1.4',
-    'websockets>=2.6',
+    'websockets>=3.0',
     'mongolock>=1.3.4',
     'PyYAML>=3.11',
 ]
