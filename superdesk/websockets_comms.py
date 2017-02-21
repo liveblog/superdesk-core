@@ -23,7 +23,7 @@ from kombu.mixins import ConsumerMixin
 from kombu.pools import producers
 from superdesk.utc import utcnow
 from superdesk.utils import get_random_string
-from superdesk.default_settings import celery_queue
+from superdesk.factory.default_settings import celery_queue
 from flask import json
 
 

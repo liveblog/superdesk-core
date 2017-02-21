@@ -2,7 +2,7 @@
 import unittest
 
 from unittest.mock import patch
-from superdesk.default_settings import celery_queue
+from superdesk.factory.default_settings import celery_queue
 
 
 class SettingsTestCase(unittest.TestCase):
