@@ -37,6 +37,20 @@ ABS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 BEHAVE_TESTS_FIXTURES_PATH = os.path.join(ABS_PATH,  # default value: `features/steps/fixtures`
                                           'features', 'steps', 'fixtures')
 
+
+def celery_queue(name):
+    """Get celery queue name with optional prefix set in environment.
+
+    If you want to use multiple workers in Procfile you have to use the prefix::
+
+        work_publish: celery -A worker -Q "${SUPERDESK_CELERY_PREFIX}publish" worker
+        work_default: celery -A worker worker
+
+    :param name: queue name
+    """
+    return "{}{}".format(os.environ.get('SUPERDESK_CELERY_PREFIX', ''), name)
+
+
 XML = False
 IF_MATCH = True
 BANDWIDTH_SAVER = False
@@ -118,56 +132,56 @@ CELERYD_LOG_FORMAT = '%(message)s level=%(levelname)s process=%(processName)s'
 CELERYD_TASK_LOG_FORMAT = ' '.join([CELERYD_LOG_FORMAT, 'task=%(task_name)s task_id=%(task_id)s'])
 
 CELERYBEAT_SCHEDULE_FILENAME = env('CELERYBEAT_SCHEDULE_FILENAME', './celerybeatschedule.db')
-CELERY_DEFAULT_QUEUE = 'default'
-CELERY_DEFAULT_EXCHANGE = 'default'
+CELERY_DEFAULT_QUEUE = celery_queue('default')
+CELERY_DEFAULT_EXCHANGE = celery_queue('default')
 CELERY_DEFAULT_ROUTING_KEY = 'default'
 
 CELERY_QUEUES = (
-    Queue('default', Exchange(CELERY_DEFAULT_EXCHANGE), routing_key=CELERY_DEFAULT_ROUTING_KEY),
-    Queue('expiry', Exchange('expiry', type='topic'), routing_key='expiry.#'),
-    Queue('legal', Exchange('legal', type='topic'), routing_key='legal.#'),
-    Queue('publish', Exchange('publish', type='topic'), routing_key='publish.#'),
+    Queue(celery_queue('default'), Exchange(CELERY_DEFAULT_EXCHANGE), routing_key=CELERY_DEFAULT_ROUTING_KEY),
+    Queue(celery_queue('expiry'), Exchange(celery_queue('expiry'), type='topic'), routing_key='expiry.#'),
+    Queue(celery_queue('legal'), Exchange(celery_queue('legal'), type='topic'), routing_key='legal.#'),
+    Queue(celery_queue('publish'), Exchange(celery_queue('publish'), type='topic'), routing_key='publish.#'),
 )
 
 CELERY_ROUTES = {
     'apps.archive.content_expiry': {
-        'queue': 'expiry',
+        'queue': celery_queue('expiry'),
         'routing_key': 'expiry.content'
     },
     'superdesk.io.gc_ingest': {
-        'queue': 'expiry',
+        'queue': celery_queue('expiry'),
         'routing_key': 'expiry.ingest'
     },
     'apps.auth.session_purge': {
-        'queue': 'expiry',
+        'queue': celery_queue('expiry'),
         'routing_key': 'expiry.session'
     },
     'apps.legal_archive.import_legal_publish_queue': {
-        'queue': 'legal',
+        'queue': celery_queue('legal'),
         'routing_key': 'legal.publish_queue'
     },
     'apps.legal_archive.commands.import_into_legal_archive': {
-        'queue': 'legal',
+        'queue': celery_queue('legal'),
         'routing_key': 'legal.archive'
     },
     'superdesk.publish.transmit': {
-        'queue': 'publish',
+        'queue': celery_queue('publish'),
         'routing_key': 'publish.transmit'
     },
     'superdesk.publish.publish_content.publish': {
-        'queue': 'publish',
+        'queue': celery_queue('publish'),
         'routing_key': 'publish.transmit'
     },
     'superdesk.publish.publish_content.transmit_subscriber_items': {
-        'queue': 'publish',
+        'queue': celery_queue('publish'),
         'routing_key': 'publish.transmit'
     },
     'apps.publish.enqueue.enqueue_published': {
-        'queue': 'publish',
+        'queue': celery_queue('publish'),
         'routing_key': 'publish.enqueue'
     },
     'apps.legal_archive.import_legal_archive': {
-        'queue': 'legal',
+        'queue': celery_queue('legal'),
         'routing_key': 'legal.archive'
     }
 }
