@@ -17,7 +17,6 @@ import json
 from datetime import datetime
 from flask import current_app as app
 from superdesk.utils import json_serialize_datetime_objectId
-from superdesk.websockets_comms import SocketMessageProducer
 
 
 logger = logging.getLogger(__name__)
@@ -36,6 +35,8 @@ class ClosedSocket():
 
 
 def init_app(app):
+    from superdesk.websockets_comms import SocketMessageProducer
+
     try:
         app.notification_client = SocketMessageProducer(app.config['BROKER_URL'])
     except (RuntimeError, OSError):

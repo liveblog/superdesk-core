@@ -9,22 +9,24 @@
 # at https://www.sourcefabric.org/superdesk/license
 
 import logging
-from eve.versioning import resolve_document_version
-from flask import current_app as app
-import superdesk
 from collections import Counter
+
 from eve.utils import config, ParsedRequest
 from eve.validation import ValidationError
-from superdesk.errors import SuperdeskApiError
+from eve.versioning import resolve_document_version
+from flask import current_app as app
+
+import superdesk
+from apps.archive.archive import SOURCE as ARCHIVE
+from apps.archive.common import insert_into_versions
+from apps.templates.content_templates import render_content_template_by_id
 from superdesk import get_resource_service
+from superdesk.default_settings import VERSION
+from superdesk.errors import SuperdeskApiError
 from superdesk.metadata.item import ITEM_TYPE, CONTENT_TYPE, EMBARGO
 from superdesk.metadata.packages import LINKED_IN_PACKAGES, PACKAGE_TYPE, TAKES_PACKAGE, PACKAGE, LAST_TAKE, \
     REFS, RESIDREF, GROUPS, ID_REF, MAIN_GROUP, SEQUENCE, ROOT_GROUP, ROLE, ROOT_ROLE, MAIN_ROLE, GROUP_ID
-from apps.archive.common import insert_into_versions
-from apps.archive.archive import SOURCE as ARCHIVE
 from superdesk.utc import utcnow
-from superdesk.factory.default_settings import VERSION
-from apps.templates.content_templates import render_content_template_by_id
 
 logger = logging.getLogger(__name__)
 package_create_signal = superdesk.signals.signal('package.create')  # @UndefinedVariable

@@ -22,13 +22,11 @@ from kombu import Queue, Exchange, Connection
 from kombu.mixins import ConsumerMixin
 from kombu.pools import producers
 from superdesk.utc import utcnow
-from superdesk.utils import get_random_string
-from superdesk.factory.default_settings import celery_queue
+from superdesk.utils import get_random_string, celery_queue
 from flask import json
 
 
 logger = logging.getLogger(__name__)
-exchange_name = celery_queue('socket_notification')
 
 
 class SocketBrokerClient:
@@ -42,7 +40,7 @@ class SocketBrokerClient:
         self.url = url
         self.connect()
         self.channel = self.connection.channel()
-        self.socket_exchange = Exchange(exchange_name, type='fanout', channel=self.channel)
+        self.socket_exchange = Exchange(celery_queue('socket_notification'), type='fanout', channel=self.channel)
         self.socket_exchange.declare()
 
     def open(self):

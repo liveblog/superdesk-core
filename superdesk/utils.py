@@ -176,3 +176,27 @@ def plaintext_filter(value):
     soup = BeautifulSoup(value, 'html.parser')
     text = soup.get_text()
     return text.replace('\n', ' ').strip()
+
+
+def env(variable, fallback_value=None):
+    env_value = os.environ.get(variable, '')
+    if len(env_value) == 0:
+        return fallback_value
+    else:
+        if env_value == "__EMPTY__":
+            return ''
+        else:
+            return env_value
+
+
+def celery_queue(name):
+    """Get celery queue name with optional prefix set in environment.
+
+    If you want to use multiple workers in Procfile you have to use the prefix::
+
+        work_publish: celery -A worker -Q "${SUPERDESK_CELERY_PREFIX}publish" worker
+        work_default: celery -A worker worker
+
+    :param name: queue name
+    """
+    return "{}{}".format(os.environ.get('SUPERDESK_CELERY_PREFIX', ''), name)
