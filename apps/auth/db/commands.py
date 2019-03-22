@@ -10,9 +10,14 @@
 
 import logging
 from base64 import b64encode
+from distutils.util import strtobool
 from flask import current_app as app
+
 import superdesk
 from superdesk.utils import get_hash, is_hashed
+from superdesk.users.errors import UserNotRegisteredException
+from superdesk.emails import send_activate_account_email
+from superdesk.roles.errors import RoleDoesNotExist
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +69,70 @@ class CreateUserCommand(superdesk.Command):
             return userdata
 
 
+class ManageUserCommand(superdesk.Command):
+    """Manage an already created user with given username.
+
+    It allows to modify certain attributes from the user model
+    """
+
+    option_list = (
+        superdesk.Option('--username', '-u', dest='username', required=True),
+        superdesk.Option('--admin', '-a', dest='admin', required=False,
+            help='If true it will turn the user into admin type'),
+        superdesk.Option('--support', '-s', dest='support', required=False,
+            help='If true it will turn the user into support one'),
+        superdesk.Option('--active', '-atv', dest='active', required=False),
+        superdesk.Option('--enabled', '-e', dest='enabled', required=False),
+        superdesk.Option('--role', '-r', dest='role', type=str)
+    )
+
+    def run(self, username, **kwargs):
+
+        def _bool(param):
+            return bool(strtobool(param))
+
+        updates = {}
+
+        admin = kwargs.get('admin')
+        is_support = kwargs.get('support')
+        is_active = kwargs.get('active')
+        is_enabled = kwargs.get('enabled')
+        role_param = kwargs.get('role')
+
+        if admin:
+            updates['user_type'] = 'administrator' if admin else 'user'
+
+        if is_support:
+            updates['is_support'] = _bool(is_support)
+
+        if is_active:
+            updates['is_active'] = _bool(is_active)
+
+        if is_enabled:
+            updates['is_enabled'] = _bool(is_enabled)
+
+        with app.test_request_context('/users', method='POST'):
+            if role_param:
+                role = superdesk.get_resource_service('roles').find_one(name=role_param, req=None)
+
+                if role is None:
+                    raise RoleDoesNotExist('The desired role `%s` does not exist' % role_param)
+
+                updates['role'] = role['_id']
+
+            users = superdesk.get_resource_service('users')
+            user = users.find_one(username=username, req=None)
+
+            if user is None:
+                raise UserNotRegisteredException('User `%s` not found' % username)
+
+            logger.info('updating user %s' % (updates))
+            users.system_update(user['_id'], updates, user)
+            logger.info('user updated %s' % (updates))
+
+            return updates
+
+
 class HashUserPasswordsCommand(superdesk.Command):
     """Hash all the user passwords which are not hashed yet.
 
@@ -109,5 +178,6 @@ class GetAuthTokenCommand(superdesk.Command):
 
 
 superdesk.command('users:create', CreateUserCommand())
+superdesk.command('users:modify', ManageUserCommand())
 superdesk.command('users:hash_passwords', HashUserPasswordsCommand())
 superdesk.command('users:get_auth_token', GetAuthTokenCommand())
