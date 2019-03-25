@@ -83,7 +83,9 @@ class ManageUserCommand(superdesk.Command):
             help='If true it will turn the user into support one'),
         superdesk.Option('--active', '-atv', dest='active', required=False),
         superdesk.Option('--enabled', '-e', dest='enabled', required=False),
-        superdesk.Option('--role', '-r', dest='role', type=str)
+        superdesk.Option('--role', '-r', dest='role', type=str),
+        superdesk.Option('--firstname', '-fn', dest='firstname', type=str),
+        superdesk.Option('--lastname', '-ln', dest='lastname', type=str)
     )
 
     def run(self, username, **kwargs):
@@ -98,6 +100,8 @@ class ManageUserCommand(superdesk.Command):
         is_active = kwargs.get('active')
         is_enabled = kwargs.get('enabled')
         role_param = kwargs.get('role')
+        first_name = kwargs.get('firstname')
+        last_name = kwargs.get('lastname')
 
         if admin:
             updates['user_type'] = 'administrator' if admin else 'user'
@@ -110,6 +114,12 @@ class ManageUserCommand(superdesk.Command):
 
         if is_enabled:
             updates['is_enabled'] = _bool(is_enabled)
+
+        if first_name:
+            updates['first_name'] = first_name
+
+        if last_name:
+            updates['last_name'] = last_name
 
         with app.test_request_context('/users', method='POST'):
             if role_param:
@@ -125,6 +135,10 @@ class ManageUserCommand(superdesk.Command):
 
             if user is None:
                 raise UserNotRegisteredException('User `%s` not found' % username)
+
+            updates['display_name'] = '{0} {1}'.format(
+                first_name or user['first_name'],
+                last_name or user['last_name'])
 
             logger.info('updating user %s' % (updates))
             users.system_update(user['_id'], updates, user)
