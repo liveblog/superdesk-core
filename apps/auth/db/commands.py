@@ -137,8 +137,8 @@ class ManageUserCommand(superdesk.Command):
                 raise UserNotRegisteredException('User `%s` not found' % username)
 
             updates['display_name'] = '{0} {1}'.format(
-                first_name or user['first_name'],
-                last_name or user['last_name'])
+                first_name or user.get('first_name', ''),
+                last_name or user.get('last_name', ''))
 
             logger.info('updating user %s' % (updates))
             users.system_update(user['_id'], updates, user)
