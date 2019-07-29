@@ -27,7 +27,7 @@ install_requires = [
     'blinker>=1.3,<1.5',
     'celery[redis]>=4.0.2,<4.2',
     'feedparser>=5.2,<5.3',
-    'hachoir3>=3.0a1,<=3.0a2',
+    # 'hachoir3>=3.0a1,<=3.0a2',
     'HermesCache>=0.6.0,<0.8.0',
     'python-magic>=0.4,<0.5',
     'ldap3>=2.2.4,<2.2.5',
