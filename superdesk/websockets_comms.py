@@ -186,7 +186,12 @@ class SocketCommunication:
             if not websocket.open:
                 break
             pings += 1
-            yield from websocket.send(json.dumps({'ping': pings, 'clients': len(websocket.ws_server.websockets)}))
+
+            host, port = websocket.remote_address
+            yield from websocket.send(json.dumps({
+                    'ping': pings, 'clients': len(websocket.ws_server.websockets),
+                    'address': '%s:%s' % (host, port)
+                }))
 
     @asyncio.coroutine
     def broadcast(self, message):
@@ -214,7 +219,9 @@ class SocketCommunication:
             try:
                 if websocket.open:
                     yield from websocket.send(message)
-            except Exception:
+            except Exception as err:
+                host, port = websocket.remote_address
+                logger.exception('Problem broadcasting message to address=%s:%s. Error: %s' % (host, port, err))
                 yield
 
     @asyncio.coroutine
