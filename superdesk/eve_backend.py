@@ -40,9 +40,9 @@ class EveBackend():
             item_search = search_backend.find_one(endpoint_name, req=req, **lookup)
             if item is None and item_search:
                 item = item_search
-                logger.warn(item_msg('item is only in elastic', item))
+                logger.info(item_msg('item is only in elastic', item))
             elif item_search is None and item:
-                logger.warn(item_msg('item is only in mongo', item))
+                logger.info(item_msg('item is only in mongo', item))
                 try:
                     logger.info(item_msg('trying to add item to elastic', item))
                     search_backend.insert(endpoint_name, [item])
