@@ -173,10 +173,10 @@ class AmazonMediaStorage(MediaStorage):
         return headers
 
     def put(self, content, filename=None, content_type=None, resource=None, metadata=None, _id=None, version=True,
-            folder=None):
+            folder=None, check_exists=True):
         """Save a new file using the storage system, preferably with the name specified.
 
-        If there already exists a file with this name name, the
+        If there already exists a file with this same name, the
         storage system may modify the filename as necessary to get a unique
         name. Depending on the storage system, a unique id or the actual name
         of the stored file will be returned. The content type argument is used
@@ -190,6 +190,7 @@ class AmazonMediaStorage(MediaStorage):
         :param str _id: ID to be used as the key in the bucket
         :param version: If True the timestamp will be prepended to the key else a string can be used to prepend the key
         :param str folder: The folder to store the object in
+        :param check_exists: If True it will verify if the object already exists in the bucket and return the file _id
         :return str: The ID that was generated for this object
         """
         # XXX: we don't use metadata here as Amazon S3 as a limit of 2048 bytes (keys + values)
@@ -201,9 +202,10 @@ class AmazonMediaStorage(MediaStorage):
         if folder:
             _id = '%s/%s' % (folder.rstrip('/'), _id)
 
-        found = self._check_exists(_id)
-        if found:
-            return _id
+        if check_exists:
+            found = self._check_exists(_id)
+            if found:
+                return _id
 
         kwargs = {}
         acl = self.app.config['AMAZON_OBJECT_ACL']
