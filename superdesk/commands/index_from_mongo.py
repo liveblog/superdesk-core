@@ -9,6 +9,7 @@
 # at https://www.sourcefabric.org/superdesk/license
 
 import time
+import arrow
 import pymongo
 import superdesk
 
@@ -23,28 +24,42 @@ class IndexFromMongo(superdesk.Command):
     This will use the default APP mongo DB to read the data and the default Elastic APP index.
 
     Use ``-f all`` to index all collections.
+
+    Example:
+    ::
+        $ python manage.py app:index_from_mongo --from=archive
+        $ python manage.py app:index_from_mongo --all
+        $ python manage.py app:index_from_mongo --from-datetime '1991-09-17T00:00:00'
     """
 
     option_list = [
         superdesk.Option('--from', '-f', dest='collection_name'),
         superdesk.Option('--all', action='store_true', dest='all_collections'),
-        superdesk.Option('--page-size', '-p')
+        superdesk.Option('--page-size', '-p'),
+        superdesk.Option('--from-datetime', dest='from_datetime')
     ]
     default_page_size = 500
 
-    def run(self, collection_name, all_collections, page_size):
+    def run(self, collection_name, all_collections, page_size, from_datetime):
+        datetime_value = None
+        if from_datetime:
+            try:
+                datetime_value = arrow.get(from_datetime).datetime
+            except Exception:
+                raise SystemExit('Unable to parse datetime parameter. Try format like `1991-09-17T00:00:00`')
+
         if not collection_name and not all_collections:
             raise SystemExit('Specify --all to index from all collections')
         elif all_collections:
             app.data.init_elastic(app)
             resources = app.data.get_elastic_resources()
             for resource in resources:
-                self._copy_resource(resource, page_size)
+                self._copy_resource(resource, page_size, datetime_value)
         else:
-            self._copy_resource(collection_name, page_size)
+            self._copy_resource(collection_name, page_size, datetime_value)
 
-    def _copy_resource(self, resource, page_size):
-        for items in self.get_mongo_items(resource, page_size):
+    def _copy_resource(self, resource, page_size, datetime_value):
+        for items in self.get_mongo_items(resource, page_size, datetime_value):
             print('{} Inserting {} items'.format(time.strftime('%X %x %Z'), len(items)))
             s = time.time()
 
@@ -66,7 +81,7 @@ class IndexFromMongo(superdesk.Command):
 
         return 'Finished indexing collection {}'.format(resource)
 
-    def get_mongo_items(self, mongo_collection_name, page_size):
+    def get_mongo_items(self, mongo_collection_name, page_size, datetime_value=None):
         """Generate list of items from given mongo collection per page size.
 
         :param mongo_collection_name: Name of the collection to get the items
@@ -79,9 +94,16 @@ class IndexFromMongo(superdesk.Command):
         db = app.data.get_mongo_collection(mongo_collection_name)
         args = {'limit': bucket_size, 'sort': [(config.ID_FIELD, pymongo.ASCENDING)]}
         last_id = None
+
+        if datetime_value:
+            args['filter'] = {config.LAST_UPDATED: {'$gt': datetime_value}}
+
         while True:
             if last_id:
-                args.update({'filter': {config.ID_FIELD: {'$gt': last_id}}})
+                filter = args.get('filter', {})
+                filter[config.ID_FIELD] = {'$gt': last_id}
+                args['filter'] = filter
+
             cursor = db.find(**args)
             if not cursor.count():
                 break
