@@ -20,7 +20,7 @@ install_requires = [
     'flask-oauthlib>=0.9.3,<0.10',
     'flask-mail>=0.9,<0.10',
     'flask-script>=2.0.5,<3.0',
-    'pillow>=3.0,<=5.0',
+    'pillow>=3.0,<=8.5',
     'arrow>=0.4,<=0.13',
     'asyncio>=3.4,<3.5',
     'bcrypt>=3.1.1,<3.2',
