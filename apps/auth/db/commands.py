@@ -35,11 +35,11 @@ class CreateUserCommand(superdesk.Command):
         superdesk.Option('--email', '-e', dest='email', required=True),
         superdesk.Option('--admin', '-a', dest='admin', required=False, action='store_true'),
         superdesk.Option('--support', '-s', dest='support', required=False, action='store_true'),
-        superdesk.Option('--firstname', '-fn', dest='firstname', type=str),
-        superdesk.Option('--lastname', '-ln', dest='lastname', type=str),
+        superdesk.Option('--firstname', '-fn', dest='firstname', required=True, type=str),
+        superdesk.Option('--lastname', '-ln', dest='lastname', required=True, type=str),
     )
 
-    def run(self, username, password, email, admin=False, support=False, **kwargs):
+    def run(self, username, password, email, firstname, lastname, admin=False, support=False, **kwargs):
 
         # force type conversion to boolean
         user_type = 'administrator' if admin else 'user'
@@ -51,20 +51,11 @@ class CreateUserCommand(superdesk.Command):
             'user_type': user_type,
             'is_active': admin,
             'is_support': support,
-            'needs_activation': not admin
+            'needs_activation': not admin,
+            'firstname': firstname,
+            'lastname': lastname,
+            'display_name': f'{firstname} {lastname}'
         }
-
-        first_name = kwargs.get('firstname', '')
-        last_name = kwargs.get('lastname', '')
-
-        if first_name:
-            userdata['first_name'] = first_name
-
-        if last_name:
-            userdata['last_name'] = last_name
-
-        if first_name or last_name:
-            userdata['display_name'] = '{0} {1}'.format(first_name, last_name)
 
         with app.test_request_context('/users', method='POST'):
             if userdata.get('password', None) and not is_hashed(userdata.get('password')):
