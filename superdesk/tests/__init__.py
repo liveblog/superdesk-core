@@ -18,7 +18,10 @@ from unittest.mock import patch
 
 from flask import json, Config
 
-from apps.ldap import ADAuth
+try:
+    from apps.ldap import ADAuth
+except ImportError:
+    ADAuth = None
 from superdesk import get_resource_service
 from superdesk.factory import get_app
 
