@@ -11,8 +11,14 @@
 
 
 import arrow
+import atexit
+import itertools
 import logging
 import asyncio
+import os
+import queue
+import threading
+import time
 import websockets
 import signal
 
@@ -28,6 +34,17 @@ from flask import json
 
 
 logger = logging.getLogger(__name__)
+
+# Notifications are sent from API requests and Celery tasks, which must never wait on the broker.
+# The producer only queues them; one background thread per process publishes, retrying while the
+# broker is down or not answering. A message older than PRODUCER_MAX_MESSAGE_AGE is dropped instead
+# of sent late: by then it is stale for the editors' screens. See LBSD-2994.
+PRODUCER_CONNECT_TIMEOUT = 2
+PRODUCER_RETRY_POLICY = {'max_retries': 1, 'interval_start': 0, 'interval_step': 0.5, 'interval_max': 0.5}
+PRODUCER_RETRY_DELAYS = (0.5, 1, 2, 5)
+PRODUCER_MAX_MESSAGE_AGE = 20
+PRODUCER_QUEUE_SIZE = 1000
+PRODUCER_EXIT_FLUSH_TIMEOUT = 2
 
 
 class SocketBrokerClient:
@@ -73,23 +90,92 @@ class SocketBrokerClient:
 
 
 class SocketMessageProducer(SocketBrokerClient):
-    """Used by backeend processes to send messages."""
+    """Publishes messages to a fanout exchange from a background thread."""
 
-    """
-    Publishes messages to a exchange (fanout).
-    """
+    def __init__(self, url, exchange_name=None):
+        # Does not connect: the sender thread does, so building the producer never waits on the broker.
+        self.url = url
+        self.exchange_name = exchange_name if exchange_name else celery_queue('socket_notification')
+        self.socket_exchange = Exchange(self.exchange_name, type='fanout')
+        self._lock = threading.Lock()
+        self._pid = None
+        self._queue = None
+        atexit.register(self._flush)
+
     def send(self, message):
-        """
-        Publishes the message to an exchange
+        """Queue the message for publishing and return immediately.
 
         :param string message: message to publish
         """
+        self._start_sender()
         try:
-            with producers[self.connection].acquire(block=True) as producer:
-                producer.publish(message, exchange=self.socket_exchange)
-                logger.debug('message:{} published to broker:{}.'.format(message, self.url))
-        except Exception:
-            logger.exception('Failed to publish message {} to broker.'.format(message))
+            self._queue.put_nowait((time.monotonic(), message))
+        except queue.Full:
+            logger.warning('Notification queue is full, dropping message {}'.format(message))
+
+    def _start_sender(self):
+        # Threads do not survive fork and gunicorn and Celery fork after the app is built, so each
+        # process gets its own queue, thread and connection. The parent's connection is dropped, not
+        # closed: closing it would close the socket the parent still uses.
+        if self._pid == os.getpid():
+            return
+        with self._lock:
+            if self._pid == os.getpid():
+                return
+            self.connection = None
+            self._queue = queue.Queue(maxsize=PRODUCER_QUEUE_SIZE)
+            threading.Thread(target=self._send_forever, name='notification-sender', daemon=True).start()
+            self._pid = os.getpid()
+
+    def _send_forever(self):
+        failing = False
+        while True:
+            created, message = self._queue.get()
+            delays = itertools.chain(PRODUCER_RETRY_DELAYS, itertools.repeat(PRODUCER_RETRY_DELAYS[-1]))
+            for delay in delays:
+                if time.monotonic() - created > PRODUCER_MAX_MESSAGE_AGE:
+                    logger.warning('Dropping notification older than {}s: {}'.format(
+                        PRODUCER_MAX_MESSAGE_AGE, message))
+                    break
+                try:
+                    self._publish(message)
+                except Exception:
+                    if not failing:
+                        logger.exception('Failed to publish notifications to broker {}, retrying'.format(self.url))
+                        failing = True
+                    time.sleep(delay)
+                else:
+                    if failing:
+                        logger.warning('Publishing notifications to broker {} again'.format(self.url))
+                        failing = False
+                    break
+            self._queue.task_done()
+
+    def _publish(self, message):
+        if self.connection is None:
+            self.connection = Connection(
+                self.url,
+                heartbeat=WS_HEART_BEAT,
+                connect_timeout=PRODUCER_CONNECT_TIMEOUT,
+                transport_options=dict(PRODUCER_RETRY_POLICY),
+            )
+        with producers[self.connection].acquire(block=True) as producer:
+            producer.publish(
+                message,
+                exchange=self.socket_exchange,
+                declare=[self.socket_exchange],
+                retry=True,
+                retry_policy=PRODUCER_RETRY_POLICY,
+            )
+            logger.debug('message:{} published to broker:{}.'.format(message, self.url))
+
+    def _flush(self):
+        """On a clean exit, give the thread a moment to publish what is still queued."""
+        if self._pid != os.getpid():
+            return
+        deadline = time.monotonic() + PRODUCER_EXIT_FLUSH_TIMEOUT
+        while self._queue.unfinished_tasks and time.monotonic() < deadline:
+            time.sleep(0.05)
 
 
 class SocketMessageConsumer(SocketBrokerClient, ConsumerMixin):
