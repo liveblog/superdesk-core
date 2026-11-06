@@ -29,6 +29,16 @@ from flask import json
 
 logger = logging.getLogger(__name__)
 
+# Notifications are published synchronously inside API requests, so the producer must never block
+# a request for long. kombu retries reconnects forever by default (max_retries=None), both in
+# publish(retry=True) and when a pooled connection is revived in default_channel, which blocks the
+# worker until gunicorn kills it while the broker is unreachable or not answering. This policy
+# bounds both: one retry, then the notification is dropped and logged. max_retries must stay >= 1,
+# 0 means retry forever in kombu. It is used only by the producer: the websocket consumer relies on
+# kombu reconnecting forever.
+PRODUCER_CONNECT_TIMEOUT = 2
+PRODUCER_RETRY_POLICY = {'max_retries': 1, 'interval_start': 0, 'interval_step': 0.5, 'interval_max': 0.5}
+
 
 class SocketBrokerClient:
     """
@@ -57,9 +67,12 @@ class SocketBrokerClient:
     def connect(self):
         self._close()
         logger.info('Connecting to broker {}'.format(self.url))
-        self.connection = Connection(self.url, heartbeat=WS_HEART_BEAT)
+        self.connection = self._new_connection()
         self.connection.connect()
         logger.info('Connected to broker {}'.format(self.url))
+
+    def _new_connection(self):
+        return Connection(self.url, heartbeat=WS_HEART_BEAT)
 
     def _close(self):
         if hasattr(self, 'connection') and self.connection:
@@ -78,6 +91,14 @@ class SocketMessageProducer(SocketBrokerClient):
     """
     Publishes messages to a exchange (fanout).
     """
+    def _new_connection(self):
+        return Connection(
+            self.url,
+            heartbeat=WS_HEART_BEAT,
+            connect_timeout=PRODUCER_CONNECT_TIMEOUT,
+            transport_options=dict(PRODUCER_RETRY_POLICY),
+        )
+
     def send(self, message):
         """
         Publishes the message to an exchange
@@ -86,7 +107,12 @@ class SocketMessageProducer(SocketBrokerClient):
         """
         try:
             with producers[self.connection].acquire(block=True) as producer:
-                producer.publish(message, exchange=self.socket_exchange)
+                producer.publish(
+                    message,
+                    exchange=self.socket_exchange,
+                    retry=True,
+                    retry_policy=PRODUCER_RETRY_POLICY,
+                )
                 logger.debug('message:{} published to broker:{}.'.format(message, self.url))
         except Exception:
             logger.exception('Failed to publish message {} to broker.'.format(message))
